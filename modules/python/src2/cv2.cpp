@@ -115,6 +115,7 @@ typedef vector<Vec4f> vector_Vec4f;
 typedef vector<Vec6f> vector_Vec6f;
 typedef vector<Vec4i> vector_Vec4i;
 typedef vector<Rect> vector_Rect;
+typedef vector<RotatedRect> vector_RotatedRect;
 typedef vector<KeyPoint> vector_KeyPoint;
 typedef vector<Mat> vector_Mat;
 typedef vector<DMatch> vector_DMatch;
@@ -816,6 +817,7 @@ template<typename _Tp> static inline PyObject* pyopencv_from(const vector<_Tp>& 
     return pyopencvVecConverter<_Tp>::from(value);
 }
 
+static PyObject* pyopencv_from(const RotatedRect&);
 static PyObject* pyopencv_from(const KeyPoint&);
 static PyObject* pyopencv_from(const DMatch&);
 
@@ -884,6 +886,19 @@ template<> struct pyopencvVecConverter<Mat>
     }
 
     static PyObject* from(const vector<Mat>& value)
+    {
+        return pyopencv_from_generic_vec(value);
+    }
+};
+
+template<> struct pyopencvVecConverter<RotatedRect>
+{
+    static bool to(PyObject* obj, vector<RotatedRect>& value, const ArgInfo info)
+    {
+        return pyopencv_to_generic_vec(obj, value, info);
+    }
+
+    static PyObject* from(const vector<RotatedRect>& value)
     {
         return pyopencv_from_generic_vec(value);
     }

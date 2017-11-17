@@ -639,6 +639,125 @@ CV_EXPORTS_W void findDataMatrix(InputArray image,
 CV_EXPORTS_W void drawDataMatrixCodes(InputOutputArray image,
                                       const vector<string>& codes,
                                       InputArray corners);
+
+//////////////////////////////////////////////////////////////////////////
+//////////// Fisheye HOG
+
+struct CV_EXPORTS_W FisheyeHOGDescriptor
+{
+public:
+    enum { L2Hys=0 };
+    enum { DEFAULT_NLEVELS=64 };
+
+    CV_WRAP FisheyeHOGDescriptor() : imgSize(0,0), winSize(64,128), blockSize(16,16), blockStride(8,8),
+        cellSize(8,8), nbins(9), derivAperture(1), winSigma(-1),
+        histogramNormType(FisheyeHOGDescriptor::L2Hys), L2HysThreshold(0.2), gammaCorrection(true),
+        nlevels(FisheyeHOGDescriptor::DEFAULT_NLEVELS)
+    {}
+
+    CV_WRAP FisheyeHOGDescriptor(Size _winSize, Size _blockSize, Size _blockStride,
+                  Size _cellSize, int _nbins, int _derivAperture=1, double _winSigma=-1,
+                  int _histogramNormType=FisheyeHOGDescriptor::L2Hys,
+                  double _L2HysThreshold=0.2, bool _gammaCorrection=false,
+                  int _nlevels=FisheyeHOGDescriptor::DEFAULT_NLEVELS)
+    : winSize(_winSize), blockSize(_blockSize), blockStride(_blockStride), cellSize(_cellSize),
+    nbins(_nbins), derivAperture(_derivAperture), winSigma(_winSigma),
+    histogramNormType(_histogramNormType), L2HysThreshold(_L2HysThreshold),
+    gammaCorrection(_gammaCorrection), nlevels(_nlevels)
+    {}
+
+    CV_WRAP FisheyeHOGDescriptor(const String& filename)
+    {
+        load(filename);
+    }
+
+    FisheyeHOGDescriptor(const FisheyeHOGDescriptor& d)
+    {
+        d.copyTo(*this);
+    }
+
+    virtual ~FisheyeHOGDescriptor() {}
+
+    CV_WRAP size_t getDescriptorSize() const;
+    CV_WRAP bool checkDetectorSize() const;
+    CV_WRAP double getWinSigma() const;
+    CV_WRAP virtual void setAngleMatrix(Size _imgSize);
+
+    CV_WRAP virtual void setSVMDetector(InputArray _svmdetector);
+
+    virtual bool read(FileNode& fn);
+    virtual void write(FileStorage& fs, const String& objname) const;
+
+    CV_WRAP virtual bool load(const String& filename, const String& objname=String());
+    CV_WRAP virtual void save(const String& filename, const String& objname=String()) const;
+    virtual void copyTo(FisheyeHOGDescriptor& c) const;
+
+    CV_WRAP virtual void compute(const Mat& img,
+                         CV_OUT vector<float>& descriptors,
+                         Size winStride=Size(), Size padding=Size(), float rotatedAngle=0,
+                         const vector<Point>& locations=vector<Point>()) const;
+    //with found weights output
+    CV_WRAP virtual void detect(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
+                        CV_OUT vector<double>& weights,
+                        double hitThreshold=0, Size winStride=Size(),
+                        Size padding=Size(), float rotatedAngle=0,
+                        const vector<Point>& searchLocations=vector<Point>()) const;
+    //without found weights output
+    virtual void detect(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
+                        double hitThreshold=0, Size winStride=Size(),
+                        Size padding=Size(), float rotatedAngle=0,
+                        const vector<Point>& searchLocations=vector<Point>()) const;
+    /*//with result weights output
+    CV_WRAP virtual void detectMultiScale(const Mat& img, CV_OUT vector<Rect>& foundLocations,
+                                  CV_OUT vector<double>& foundWeights, double hitThreshold=0,
+                                  Size winStride=Size(), Size padding=Size(), double scale=1.05,
+                                  double finalThreshold=2.0, float rotatedAngle=0, bool useMeanshiftGrouping = false) const;
+    //without found weights output
+    virtual void detectMultiScale(const Mat& img, CV_OUT vector<Rect>& foundLocations,
+                                  double hitThreshold=0, Size winStride=Size(),
+                                  Size padding=Size(), double scale=1.05,
+                                  double finalThreshold=2.0, float rotatedAngle=0, bool useMeanshiftGrouping = false) const;*/
+
+    CV_WRAP virtual void computeGradient(const Mat& img, CV_OUT Mat& grad, CV_OUT Mat& angleOfs,
+                                 Size paddingTL=Size(), Size paddingBR=Size()) const;
+
+    CV_WRAP static vector<float> getDefaultPeopleDetector();
+    CV_WRAP static vector<float> getDaimlerPeopleDetector();
+
+    CV_PROP Size imgSize;       // For calculating gradient adjustment angles
+    CV_PROP Mat radialAngles;   // For keeping gradient adjustment angles
+    CV_PROP Size winSize;
+    CV_PROP Size blockSize;
+    CV_PROP Size blockStride;
+    CV_PROP Size cellSize;
+    CV_PROP int nbins;
+    CV_PROP int derivAperture;
+    CV_PROP double winSigma;
+    CV_PROP int histogramNormType;
+    CV_PROP double L2HysThreshold;
+    CV_PROP bool gammaCorrection;
+    CV_PROP vector<float> svmDetector;
+    CV_PROP int nlevels;
+
+
+   /*// evaluate specified ROI and return confidence value for each location
+   void detectROI(const cv::Mat& img, const vector<cv::Point> &locations,
+                                   CV_OUT std::vector<cv::Point>& foundLocations, CV_OUT std::vector<double>& confidences,
+                                   double hitThreshold = 0, cv::Size winStride = Size(),
+                                   cv::Size padding = Size()) const;
+
+   // evaluate specified ROI and return confidence value for each location in multiple scales
+   void detectMultiScaleROI(const cv::Mat& img,
+                                                       CV_OUT std::vector<cv::Rect>& foundLocations,
+                                                       std::vector<DetectionROI>& locations,
+                                                       double hitThreshold = 0,
+                                                       int groupThreshold = 0) const;*/
+
+   // read/parse Dalal's alt model file
+   void readALTModel(std::string modelfile);
+   //void groupRectangles(vector<cv::Rect>& rectList, vector<double>& weights, int groupThreshold, double eps) const;
+};
+
 }
 
 /****************************************************************************************\
