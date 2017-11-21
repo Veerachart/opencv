@@ -699,12 +699,12 @@ public:
     //with found weights output
     CV_WRAP virtual void detect(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
                         CV_OUT vector<double>& weights,
-                        double hitThreshold=0, Size winStride=Size(),
+                        double hitThreshold=0, Size winStride=Size(4,4),
                         Size padding=Size(), float rotatedAngle=0,
                         const vector<Point>& searchLocations=vector<Point>()) const;
     //without found weights output
     virtual void detect(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
-                        double hitThreshold=0, Size winStride=Size(),
+                        double hitThreshold=0, Size winStride=Size(4,4),
                         Size padding=Size(), float rotatedAngle=0,
                         const vector<Point>& searchLocations=vector<Point>()) const;
     /*//with result weights output
