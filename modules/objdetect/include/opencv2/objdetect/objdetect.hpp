@@ -649,9 +649,10 @@ public:
     enum { L2Hys=0 };
     enum { DEFAULT_NLEVELS=64 };
 
-    CV_WRAP FisheyeHOGDescriptor() : imgSize(0,0), winSize(64,128), blockSize(16,16), blockStride(8,8),
-        cellSize(8,8), nbins(9), derivAperture(1), winSigma(-1),
-        histogramNormType(FisheyeHOGDescriptor::L2Hys), L2HysThreshold(0.2), gammaCorrection(true),
+    CV_WRAP FisheyeHOGDescriptor() : imgSize(0,0), winSize(64,128), 
+        blockSize(16,16), blockStride(8,8), cellSize(8,8), nbins(9), derivAperture(1), 
+        winSigma(-1), histogramNormType(FisheyeHOGDescriptor::L2Hys), 
+        L2HysThreshold(0.2), gammaCorrection(true),
         nlevels(FisheyeHOGDescriptor::DEFAULT_NLEVELS)
     {}
 
@@ -694,29 +695,29 @@ public:
 
     CV_WRAP virtual void compute(const Mat& img,
                          CV_OUT vector<float>& descriptors,
-                         Size winStride=Size(), Size padding=Size(), float rotatedAngle=0,
+                         Size winStride=Size(), Size padding=Size(),
                          const vector<Point>& locations=vector<Point>()) const;
     //with found weights output
     CV_WRAP virtual void detect(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
                         CV_OUT vector<double>& weights,
                         double hitThreshold=0, Size winStride=Size(4,4),
-                        Size padding=Size(), float rotatedAngle=0,
+                        Size padding=Size(),
                         const vector<Point>& searchLocations=vector<Point>()) const;
     //without found weights output
     virtual void detect(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
                         double hitThreshold=0, Size winStride=Size(4,4),
-                        Size padding=Size(), float rotatedAngle=0,
+                        Size padding=Size(),
                         const vector<Point>& searchLocations=vector<Point>()) const;
-    /*//with result weights output
-    CV_WRAP virtual void detectMultiScale(const Mat& img, CV_OUT vector<Rect>& foundLocations,
+    //with result weights output
+    CV_WRAP virtual void detectMultiScale(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
                                   CV_OUT vector<double>& foundWeights, double hitThreshold=0,
                                   Size winStride=Size(), Size padding=Size(), double scale=1.05,
-                                  double finalThreshold=2.0, float rotatedAngle=0, bool useMeanshiftGrouping = false) const;
+                                  double finalThreshold=2.0, bool useMeanshiftGrouping = false) const;
     //without found weights output
-    virtual void detectMultiScale(const Mat& img, CV_OUT vector<Rect>& foundLocations,
+    virtual void detectMultiScale(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
                                   double hitThreshold=0, Size winStride=Size(),
                                   Size padding=Size(), double scale=1.05,
-                                  double finalThreshold=2.0, float rotatedAngle=0, bool useMeanshiftGrouping = false) const;*/
+                                  double finalThreshold=2.0, bool useMeanshiftGrouping = false) const;
 
     CV_WRAP virtual void computeGradient(const Mat& img, CV_OUT Mat& grad, CV_OUT Mat& angleOfs,
                                  Size paddingTL=Size(), Size paddingBR=Size()) const;
@@ -724,8 +725,8 @@ public:
     CV_WRAP static vector<float> getDefaultPeopleDetector();
     CV_WRAP static vector<float> getDaimlerPeopleDetector();
 
-    CV_PROP Size imgSize;       // For calculating gradient adjustment angles
-    CV_PROP Mat radialAngles;   // For keeping gradient adjustment angles
+    CV_PROP Size imgSize;           // For calculating gradient adjustment angles
+    CV_PROP Mat radialAngles;       // For keeping gradient adjustment angles
     CV_PROP Size winSize;
     CV_PROP Size blockSize;
     CV_PROP Size blockStride;

@@ -196,6 +196,9 @@ void FisheyeHOGDescriptor::computeGradient(const Mat& img, Mat& grad, Mat& qangl
                   img.rows + paddingTL.height + paddingBR.height);
     grad.create(gradsize, CV_32FC2);  // <magnitude*(1-alpha), magnitude*alpha>
     qangle.create(gradsize, CV_8UC2); // [0..nbins-1] - quantized gradient orientation
+    Size anglePad(0,0);
+    if (gradsize.width < imgSize.width)
+        anglePad = Size((imgSize.width-gradsize.width)/2, (imgSize.width-gradsize.width)/2);
     Size wholeSize;
     Point roiofs;
     img.locateROI(wholeSize, roiofs);
@@ -272,7 +275,7 @@ void FisheyeHOGDescriptor::computeGradient(const Mat& img, Mat& grad, Mat& qangl
 #endif
         float* gradPtr = (float*)grad.ptr(y);
         uchar* qanglePtr = (uchar*)qangle.ptr(y);
-        float* anglePtr = (float*)radialAngles.ptr(y);
+        float* anglePtr = (float*)radialAngles.ptr(y+anglePad.height);
 
         if( cn == 1 )
         {
@@ -374,7 +377,7 @@ void FisheyeHOGDescriptor::computeGradient(const Mat& img, Mat& grad, Mat& qangl
 #ifdef HAVE_IPP
             int hidx = (int)pHidxs[x];
 #else
-            float mag = dbuf[x+width*2], angle = (dbuf[x+width*3]-anglePtr[x])*angleScale - 0.5f;
+            float mag = dbuf[x+width*2], angle = (dbuf[x+width*3]-anglePtr[x+anglePad.width])*angleScale - 0.5f;        // TODO make it available for HAVE_IPP option
             int hidx = cvFloor(angle);
             angle -= hidx;
             gradPtr[x*2] = mag*(1.f - angle);
@@ -914,7 +917,7 @@ Size FisheyeHOGCache::windowsInImage(Size imageSize, Size winStride) const
     //return Size((imageSize.width - winSize.width)/winStride.width + 1,
     //            (imageSize.height - winSize.height)/winStride.height + 1);
     //return Size(1,90);          // For testing, only one radius, and 4-deg change TODO
-    //printf("%d\n", (imageSize.height/2 - winSize.height - 10 - 32)/winStride.width);
+    //printf("%d, %d\n", (imageSize.height/2 - winSize.height - 0 - 0)/winStride.width + 1, 360/winStride.height);
     return Size((imageSize.height/2 - winSize.height - 0 - 0)/winStride.width + 1,
                 360/winStride.height);          // winStride.width = radial shift
                                                 // 32 = inner limit of radius TODO
@@ -952,7 +955,7 @@ RotatedRect FisheyeHOGCache::getWindow(Size imageSize, Size winStride, int idx) 
 
 
 void FisheyeHOGDescriptor::compute(const Mat& img, vector<float>& descriptors,
-                                   Size winStride, Size padding, float rotatedAngle,
+                                   Size winStride, Size padding,
                                    const vector<Point>& locations) const
 {
     if( winStride == Size() )
@@ -1023,7 +1026,7 @@ void FisheyeHOGDescriptor::compute(const Mat& img, vector<float>& descriptors,
 
 void FisheyeHOGDescriptor::detect(const Mat& img,
     vector<RotatedRect>& hits, vector<double>& weights, double hitThreshold,
-    Size winStride, Size padding, float rotatedAngle, const vector<Point>& locations) const
+    Size winStride, Size padding, const vector<Point>& locations) const
 {
     //clock_t t0, t1, t2, t3;
     //float tsum1, tsum2, tsum3, tsum4;
@@ -1031,17 +1034,17 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
     weights.clear();
     if( svmDetector.empty() )
         return;
-    if((imgSize.width == 0 && imgSize.height == 0) || radialAngles.size() != img.size()) {
+    if((imgSize.width == 0 && imgSize.height == 0) || radialAngles.rows < img.rows) {   // Assume square image TODO
         // no image size given, and therefore no radial angle adjustment for gradients
+        // If the image size is smaller than the existing radialAngles matrix, just cropt it to the center
         //setAngleMatrix(img.size());
-        printf("Please call setAngleMatrix(_imgSize)");
+        printf("Please call setAngleMatrix(_imgSize)\n");
         return;
     }
 
     if( winStride == Size() )
         winStride = cellSize;
-    Size cacheStride(gcd(winStride.width, blockStride.width),
-                     gcd(winStride.height, blockStride.height));
+    Size cacheStride(4,4);
     size_t nwindows = locations.size();
     padding.width = (int)alignSize(std::max(padding.width, 0), cacheStride.width);
     padding.height = (int)alignSize(std::max(padding.height, 0), cacheStride.height);
@@ -1144,18 +1147,18 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
 }
 
 void FisheyeHOGDescriptor::detect(const Mat& img, vector<RotatedRect>& hits, double hitThreshold,
-                                  Size winStride, Size padding, float rotatedAngle, const vector<Point>& locations) const
+                                  Size winStride, Size padding, const vector<Point>& locations) const
 {
     vector<double> weightsV;
-    detect(img, hits, weightsV, hitThreshold, winStride, padding, rotatedAngle, locations);
+    detect(img, hits, weightsV, hitThreshold, winStride, padding, locations);
 }
 
-/*class FisheyeHOGInvoker : public ParallelLoopBody
+class FisheyeHOGInvoker : public ParallelLoopBody
 {
 public:
     FisheyeHOGInvoker( const FisheyeHOGDescriptor* _hog, const Mat& _img,
-                double _hitThreshold, Size _winStride, Size _padding, float _rotatedAngle, 
-                const double* _levelScale, std::vector<Rect> * _vec, Mutex* _mtx,
+                double _hitThreshold, Size _winStride, Size _padding, 
+                const double* _levelScale, std::vector<RotatedRect> * _vec, Mutex* _mtx,
                 std::vector<double>* _weights=0, std::vector<double>* _scales=0 )
     {
         hog = _hog;
@@ -1163,7 +1166,6 @@ public:
         hitThreshold = _hitThreshold;
         winStride = _winStride;
         padding = _padding;
-        rotatedAngle = _rotatedAngle;
         levelScale = _levelScale;
         vec = _vec;
         weights = _weights;
@@ -1177,7 +1179,7 @@ public:
         double minScale = i1 > 0 ? levelScale[i1] : i2 > 1 ? levelScale[i1+1] : std::max(img.cols, img.rows);
         Size maxSz(cvCeil(img.cols/minScale), cvCeil(img.rows/minScale));
         Mat smallerImgBuf(maxSz, img.type());
-        vector<Point> locations;
+        vector<RotatedRect> locations;
         vector<double> hitsWeights;
 
         for( i = i1; i < i2; i++ )
@@ -1189,15 +1191,18 @@ public:
                 smallerImg = Mat(sz, img.type(), img.data, img.step);
             else
                 resize(img, smallerImg, sz);
-            hog->detect(smallerImg, locations, hitsWeights, hitThreshold, winStride, padding, rotatedAngle);
+            //printf("Before %.4lf\n", scale);
+            hog->detect(smallerImg, locations, hitsWeights, hitThreshold, winStride, padding);
+            //printf("After  %.4lf\n", scale);
             Size scaledWinSize = Size(cvRound(hog->winSize.width*scale), cvRound(hog->winSize.height*scale));
 
             mtx->lock();
             for( size_t j = 0; j < locations.size(); j++ )
             {
-                vec->push_back(Rect(cvRound(locations[j].x*scale),
-                                    cvRound(locations[j].y*scale),
-                                    scaledWinSize.width, scaledWinSize.height));
+                vec->push_back(RotatedRect( Point2f(locations[j].center.x*scale, 
+                                            locations[j].center.y*scale),
+                               Size(scaledWinSize.width, scaledWinSize.height), 
+                               locations[j].angle));
                 if (scales)
                 {
                     scales->push_back(scale);
@@ -1222,9 +1227,8 @@ public:
     double hitThreshold;
     Size winStride;
     Size padding;
-    float rotatedAngle;
     const double* levelScale;
-    std::vector<Rect>* vec;
+    std::vector<RotatedRect>* vec;
     std::vector<double>* weights;
     std::vector<double>* scales;
     Mutex* mtx;
@@ -1232,9 +1236,9 @@ public:
 
 
 void FisheyeHOGDescriptor::detectMultiScale(
-    const Mat& img, vector<Rect>& foundLocations, vector<double>& foundWeights,
+    const Mat& img, vector<RotatedRect>& foundLocations, vector<double>& foundWeights,
     double hitThreshold, Size winStride, Size padding,
-    double scale0, double finalThreshold, float rotatedAngle, bool useMeanshiftGrouping) const
+    double scale0, double finalThreshold, bool useMeanshiftGrouping) const
 {
     double scale = 1.;
     int levels = 0;
@@ -1243,8 +1247,8 @@ void FisheyeHOGDescriptor::detectMultiScale(
     for( levels = 0; levels < nlevels; levels++ )
     {
         levelScale.push_back(scale);
-        if( cvRound(img.cols/scale) < winSize.width ||
-            cvRound(img.rows/scale) < winSize.height ||
+        if( cvRound(img.cols/scale) < 2*winSize.width ||
+            cvRound(img.rows/scale) < 2*winSize.height ||
             scale0 <= 1 )
             break;
         scale *= scale0;
@@ -1252,14 +1256,14 @@ void FisheyeHOGDescriptor::detectMultiScale(
     levels = std::max(levels, 1);
     levelScale.resize(levels);
 
-    std::vector<Rect> allCandidates;
+    std::vector<RotatedRect> allCandidates;
     std::vector<double> tempScales;
     std::vector<double> tempWeights;
     std::vector<double> foundScales;
     Mutex mtx;
 
     parallel_for_(Range(0, (int)levelScale.size()),
-                 FisheyeHOGInvoker(this, img, hitThreshold, winStride, padding, rotatedAngle, &levelScale[0], &allCandidates, &mtx, &tempWeights, &tempScales));
+                 FisheyeHOGInvoker(this, img, hitThreshold, winStride, padding, &levelScale[0], &allCandidates, &mtx, &tempWeights, &tempScales));
 
     std::copy(tempScales.begin(), tempScales.end(), back_inserter(foundScales));
     foundLocations.clear();
@@ -1267,24 +1271,24 @@ void FisheyeHOGDescriptor::detectMultiScale(
     foundWeights.clear();
     std::copy(tempWeights.begin(), tempWeights.end(), back_inserter(foundWeights));
 
-    if ( useMeanshiftGrouping )
+    /*if ( useMeanshiftGrouping )
     {
         groupRectangles_meanshift(foundLocations, foundWeights, foundScales, finalThreshold, winSize);
     }
     else
     {
         groupRectangles(foundLocations, foundWeights, (int)finalThreshold, 0.2);
-    }
+    }*/
 }
 
-void FisheyeHOGDescriptor::detectMultiScale(const Mat& img, vector<Rect>& foundLocations,
+void FisheyeHOGDescriptor::detectMultiScale(const Mat& img, vector<RotatedRect>& foundLocations,
                                             double hitThreshold, Size winStride, Size padding,
-                                            double scale0, double finalThreshold, float rotatedAngle, bool useMeanshiftGrouping) const
+                                            double scale0, double finalThreshold, bool useMeanshiftGrouping) const
 {
     vector<double> foundWeights;
     detectMultiScale(img, foundLocations, foundWeights, hitThreshold, winStride,
-                     padding, scale0, finalThreshold, rotatedAngle, useMeanshiftGrouping);
-}*/
+                     padding, scale0, finalThreshold, useMeanshiftGrouping);
+}
 
 typedef RTTIImpl<FisheyeHOGDescriptor> FisheyeHOGRTTI;
 
