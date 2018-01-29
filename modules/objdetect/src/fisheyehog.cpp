@@ -411,6 +411,9 @@ struct FisheyeHOGCache
     {
         //size_t gradOfs, qangleOfs;
         vector<size_t> gradOfs, qangleOfs;
+        int i;
+        int j;
+        int du[90],dv[90];
         int histOfs[4];
         float histWeights[4];
         float gradWeight;
@@ -429,6 +432,7 @@ struct FisheyeHOGCache
     RotatedRect getWindow(Size imageSize, Size winStride, int idx) const;
 
     const float* getBlock(Point pt, int _widx, int _bidx, float* buf);
+    const float* getBlock(Point pt, float angle, float* buf);
     virtual void normalizeBlockHistogram(float* histogram) const;
     //void printGetBlockTimes(size_t nwindows);
 
@@ -448,6 +452,8 @@ struct FisheyeHOGCache
     Mat_<uchar> blockCacheFlags;
 
     Mat grad, qangle;
+    //Mat image;
+    //bool toShow, toStop;
     const FisheyeHOGDescriptor* descriptor;
     
     float tsum1, tsum2, tsum3;
@@ -476,6 +482,10 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
     cacheStride = _cacheStride;
     useCache = _useCache;
 
+    //_img.copyTo(image);
+    //toShow = true;
+    //toStop = false;
+
     descriptor->computeGradient(_img, grad, qangle, _paddingTL, _paddingBR);
     imgoffset = _paddingTL;
 
@@ -490,6 +500,7 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
                    (winSize.height - blockSize.height)/blockStride.height + 1);
     ncells = Size(blockSize.width/cellSize.width, blockSize.height/cellSize.height);
     blockHistogramSize = ncells.width*ncells.height*nbins;
+    //printf("%d, %d, %d\n", blockHistogramSize, nblocks.width, nblocks.height);
 
     /*if( useCache )
     {
@@ -506,7 +517,7 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
     
     if( useCache )
     {
-        Size cacheSize(90*nblocks.width*2,
+        Size cacheSize(90*nblocks.width,
                        (winSize.height/cacheStride.height)+1);
         //printf("[%d,%d]\n",cacheSize.width,cacheSize.height);
         blockCache.create(cacheSize.height, cacheSize.width*blockHistogramSize);
@@ -658,6 +669,8 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
             weight2(i,j) = data->histWeights[1];
             weight3(i,j) = data->histWeights[2];
             weight4(i,j) = data->histWeights[3];*/
+            data->i = i;
+            data->j = j;
             data->gradOfs.resize(90);               // TODO make it a parameter
             data->qangleOfs.resize(90);             // TODO
             //clock_t t;
@@ -670,6 +683,8 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
                 dv = cvRound(s_angle*j + c_angle*i);
                 data->gradOfs[ang] = (grad.cols*dv + du)*2;
                 data->qangleOfs[ang] = (qangle.cols*dv + du)*2;
+                data->du[ang] = du;
+                data->dv[ang] = dv;
                 //t = clock()-t;
                 //t_sec += ((float)t)/CLOCKS_PER_SEC;
             }
@@ -708,7 +723,8 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
             for (ang = 0; ang < 90; ang++) {    // TODO
                 c_angle = cos(ang*4*CV_PI/180.);
                 s_angle = sin(ang*4*CV_PI/180.);
-                data.imgOffset[ang] = Point(j*blockStride.width*c_angle-i*blockStride.height*s_angle,j*blockStride.width*s_angle+i*blockStride.height*c_angle);
+                data.imgOffset[ang] = Point(cvRound(j*blockStride.width*c_angle-i*blockStride.height*s_angle),
+                        cvRound(j*blockStride.width*s_angle+i*blockStride.height*c_angle));
             }
         }
     tsum1 = tsum2 = tsum3 = 0;
@@ -718,14 +734,26 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
 
 const float* FisheyeHOGCache::getBlock(Point pt, int _widx, int _bidx, float* buf)
 {
+    //Mat draw;
+    //image.copyTo(draw);
     //clock_t t_0, t_1, t_2, t_3;
     //t_0 = clock();
     int rad = _widx/90;         // TODO
     int ang = _widx - rad*90;         // TODO
     int jwidth = _bidx/nblocks.height;
     int jheight = _bidx - jwidth*nblocks.height;
+    //if (ang == 0 && jwidth == 0 && jheight == 0)
+    //    toShow = true;
     float* blockHist = buf;
     assert(descriptor != 0);
+    /*Mat show = Mat::zeros(128*5,64*5,CV_8UC3);
+    for (int i = 1; i < 8; i++)
+        line(show,Point(i*8*5,0), Point(i*8*5,128*5), Scalar(255,255,255),1);
+    for (int j = 1; j < 16; j++)
+        line(show,Point(0,j*8*5), Point(128*5,j*8*5), Scalar(255,255,255),1);
+    circle(show, Point(jwidth*8*5, jheight*8*5), 2, Scalar(0,0,255),-1);
+    imshow("Blocks", show);
+    waitKey();*/
 
     Size blockSize = descriptor->blockSize;
     pt += imgoffset;
@@ -759,9 +787,9 @@ const float* FisheyeHOGCache::getBlock(Point pt, int _widx, int _bidx, float* bu
     {
         //CV_Assert( pt.x % cacheStride.width == 0 &&
         //           pt.y % cacheStride.height == 0 );
-        Point cacheIdx((nblocks.width*ang+jwidth)*2,                             //TODO
+        Point cacheIdx((nblocks.width*ang+jwidth),                             //TODO
                       (rad+jheight*2) % blockCache.rows);
-        //printf("(%d,%d), ", cacheIdx.x, cacheIdx.y);
+        //printf("(%d,%d)-%d/%d/%d/%d, ", cacheIdx.x, cacheIdx.y, rad, ang, jwidth, jheight);
         if( rad+jheight*2 != ymaxCached[cacheIdx.y] )
         {
             Mat_<uchar> cacheRow = blockCacheFlags.row(cacheIdx.y);
@@ -773,12 +801,15 @@ const float* FisheyeHOGCache::getBlock(Point pt, int _widx, int _bidx, float* bu
         blockHist = &blockCache[cacheIdx.y][cacheIdx.x*blockHistogramSize];
         uchar& computedFlag = blockCacheFlags(cacheIdx.y, cacheIdx.x);
         if( computedFlag != 0 ) {
+            //printf("_");
             return blockHist;
         }
         computedFlag = (uchar)1; // set it at once, before actual computing
+
     }
 
     int k, C1 = count1, C2 = count2, C4 = count4;
+    //printf("(%d,%d) ", pt.x, pt.y);
     
     const float* gradPtr = (const float*)(grad.data + grad.step*pt.y) + pt.x*2;
     const uchar* qanglePtr = qangle.data + qangle.step*pt.y + pt.x*2;
@@ -793,11 +824,15 @@ const float* FisheyeHOGCache::getBlock(Point pt, int _widx, int _bidx, float* bu
     //t_1 = clock();
     //tsum1 += (float) (t_1-t_0)/CLOCKS_PER_SEC;
 
+    //
     const PixData* _pixData = &pixData[0];
+    //Point pixel;
 
     for( k = 0; k < C1; k++ )
     {
         const PixData& pk = _pixData[k];
+        //pixel = Point(pk.du[ang], pk.dv[ang]);
+        //draw.at<Vec3b>(pt+pixel) = Vec3b(0,0,255);
         const float* a = gradPtr + pk.gradOfs[ang];
         float w = pk.gradWeight*pk.histWeights[0];
         const uchar* h = qanglePtr + pk.qangleOfs[ang];
@@ -807,10 +842,14 @@ const float* FisheyeHOGCache::getBlock(Point pt, int _widx, int _bidx, float* bu
         float t1 = hist[h1] + a[1]*w;
         hist[h0] = t0; hist[h1] = t1;
     }
+    //printf(" ");
+    //
 
     for( ; k < C2; k++ )
     {
         const PixData& pk = _pixData[k];
+        //pixel = Point(pk.du[ang], pk.dv[ang]);
+        //draw.at<Vec3b>(pt+pixel) = Vec3b(0,0,255);
         const float* a = gradPtr + pk.gradOfs[ang];
         float w, t0, t1, a0 = a[0], a1 = a[1];
         const uchar* h = qanglePtr + pk.qangleOfs[ang];
@@ -832,6 +871,8 @@ const float* FisheyeHOGCache::getBlock(Point pt, int _widx, int _bidx, float* bu
     for( ; k < C4; k++ )
     {
         const PixData& pk = _pixData[k];
+        //pixel = Point(pk.du[ang], pk.dv[ang]);
+        //draw.at<Vec3b>(pt+pixel) = Vec3b(0,0,255);
         const float* a = gradPtr + pk.gradOfs[ang];
         float w, t0, t1, a0 = a[0], a1 = a[1];
         const uchar* h = qanglePtr + pk.qangleOfs[ang];
@@ -865,12 +906,137 @@ const float* FisheyeHOGCache::getBlock(Point pt, int _widx, int _bidx, float* bu
     //tsum2 += (float) (t_2-t_1)/CLOCKS_PER_SEC;
 
     normalizeBlockHistogram(blockHist);
+    /*if (toStop)
+        return blockHist;
+    if (toShow) {
+        imshow("Debug", draw);
+        char key = waitKey(0);
+        if (key == 'x')
+            toShow = false;
+        else if (key == 's')
+            toStop = true;
+    }
+    if (ang == 5 && jwidth == 0 && !toStop && jheight < 3) {
+        printf("(%d,%d) ", pt.x, pt.y);
+        if (jheight == 2)
+            printf("\n");
+    }*/
 
     //t_3 = clock();
     //tsum3 += (float) (t_3-t_2)/CLOCKS_PER_SEC;
     return blockHist;
 }
 
+
+const float* FisheyeHOGCache::getBlock(Point pt, float angle, float* buf)
+{
+    // Override for specified locations
+    float* blockHist = buf;
+    assert(descriptor != 0);
+
+    Size blockSize = descriptor->blockSize;
+    pt += imgoffset;
+
+    float c_angle, s_angle;
+    size_t du, dv;
+    c_angle = cos(angle);
+    s_angle = sin(angle);
+
+    //CV_Assert( (unsigned)pt.x <= (unsigned)(grad.cols - blockSize.width) &&
+    //           (unsigned)pt.y <= (unsigned)(grad.rows - blockSize.height) );
+
+    int k, C1 = count1, C2 = count2, C4 = count4;
+
+    const float* gradPtr = (const float*)(grad.data + grad.step*pt.y) + pt.x*2;
+    const uchar* qanglePtr = qangle.data + qangle.step*pt.y + pt.x*2;
+
+    CV_Assert( blockHist != 0 );
+#ifdef HAVE_IPP
+    ippsZero_32f(blockHist,blockHistogramSize);
+#else
+    for( k = 0; k < blockHistogramSize; k++ )
+        blockHist[k] = 0.f;
+#endif
+
+    const PixData* _pixData = &pixData[0];
+
+    for( k = 0; k < C1; k++ )
+    {
+        const PixData& pk = _pixData[k];
+        du = cvRound(c_angle*pk.j - s_angle*pk.i);
+        dv = cvRound(s_angle*pk.j + c_angle*pk.i);
+        const float* a = gradPtr + (grad.cols*dv + du)*2;
+        float w = pk.gradWeight*pk.histWeights[0];
+        const uchar* h = qanglePtr + (qangle.cols*dv + du)*2;
+        int h0 = h[0], h1 = h[1];
+        float* hist = blockHist + pk.histOfs[0];
+        float t0 = hist[h0] + a[0]*w;
+        float t1 = hist[h1] + a[1]*w;
+        hist[h0] = t0; hist[h1] = t1;
+    }
+
+    for( ; k < C2; k++ )
+    {
+        const PixData& pk = _pixData[k];
+        du = cvRound(c_angle*pk.j - s_angle*pk.i);
+        dv = cvRound(s_angle*pk.j + c_angle*pk.i);
+        const float* a = gradPtr + (grad.cols*dv + du)*2;
+        float w, t0, t1, a0 = a[0], a1 = a[1];
+        const uchar* h = qanglePtr + (qangle.cols*dv + du)*2;
+        int h0 = h[0], h1 = h[1];
+
+        float* hist = blockHist + pk.histOfs[0];
+        w = pk.gradWeight*pk.histWeights[0];
+        t0 = hist[h0] + a0*w;
+        t1 = hist[h1] + a1*w;
+        hist[h0] = t0; hist[h1] = t1;
+
+        hist = blockHist + pk.histOfs[1];
+        w = pk.gradWeight*pk.histWeights[1];
+        t0 = hist[h0] + a0*w;
+        t1 = hist[h1] + a1*w;
+        hist[h0] = t0; hist[h1] = t1;
+    }
+
+    for( ; k < C4; k++ )
+    {
+        const PixData& pk = _pixData[k];
+        du = cvRound(c_angle*pk.j - s_angle*pk.i);
+        dv = cvRound(s_angle*pk.j + c_angle*pk.i);
+        const float* a = gradPtr + (grad.cols*dv + du)*2;
+        float w, t0, t1, a0 = a[0], a1 = a[1];
+        const uchar* h = qanglePtr + (qangle.cols*dv + du)*2;
+        int h0 = h[0], h1 = h[1];
+
+        float* hist = blockHist + pk.histOfs[0];
+        w = pk.gradWeight*pk.histWeights[0];
+        t0 = hist[h0] + a0*w;
+        t1 = hist[h1] + a1*w;
+        hist[h0] = t0; hist[h1] = t1;
+
+        hist = blockHist + pk.histOfs[1];
+        w = pk.gradWeight*pk.histWeights[1];
+        t0 = hist[h0] + a0*w;
+        t1 = hist[h1] + a1*w;
+        hist[h0] = t0; hist[h1] = t1;
+
+        hist = blockHist + pk.histOfs[2];
+        w = pk.gradWeight*pk.histWeights[2];
+        t0 = hist[h0] + a0*w;
+        t1 = hist[h1] + a1*w;
+        hist[h0] = t0; hist[h1] = t1;
+
+        hist = blockHist + pk.histOfs[3];
+        w = pk.gradWeight*pk.histWeights[3];
+        t0 = hist[h0] + a0*w;
+        t1 = hist[h1] + a1*w;
+        hist[h0] = t0; hist[h1] = t1;
+    }
+
+    normalizeBlockHistogram(blockHist);
+
+    return blockHist;
+}
 
 void FisheyeHOGCache::normalizeBlockHistogram(float* _hist) const
 {
@@ -918,7 +1084,7 @@ Size FisheyeHOGCache::windowsInImage(Size imageSize, Size winStride) const
     //            (imageSize.height - winSize.height)/winStride.height + 1);
     //return Size(1,90);          // For testing, only one radius, and 4-deg change TODO
     //printf("%d, %d\n", (imageSize.height/2 - winSize.height - 0 - 0)/winStride.width + 1, 360/winStride.height);
-    return Size((imageSize.height/2 - winSize.height - 0 - 0)/winStride.width + 1,
+    return Size((imageSize.height/2 - winSize.height - 12 - 0)/winStride.width + 1,
                 360/winStride.height);          // winStride.width = radial shift
                                                 // 32 = inner limit of radius TODO
                                                 // 9 = outer border of radius (black area) TODO
@@ -941,8 +1107,8 @@ RotatedRect FisheyeHOGCache::getWindow(Size imageSize, Size winStride, int idx) 
     float s_theta = sin(theta);
     //printf("%.6f\n", (float)imageSize.height/2-9-winSize.height/2-rad*winStride.width);
     return RotatedRect( 
-            Point2f(s_theta*(imageSize.height/2-0-winSize.height/2-rad*winStride.width) + imageSize.width/2, 
-                    -c_theta*(imageSize.height/2-0-winSize.height/2-rad*winStride.width) + imageSize.height/2),
+            Point2f(s_theta*(imageSize.height/2-12-winSize.height/2-rad*winStride.width) + imageSize.width/2,
+                    -c_theta*(imageSize.height/2-12-winSize.height/2-rad*winStride.width) + imageSize.height/2),
             Size(winSize.width, winSize.height), angle*angStep);
     //return Point((int) (-c_theta*winSize.width/2 + s_theta*200 + imageSize.width/2), (int) (-s_theta*winSize.width/2 - 200*c_theta + imageSize.height/2));
 }
@@ -953,25 +1119,93 @@ RotatedRect FisheyeHOGCache::getWindow(Size imageSize, Size winStride, int idx) 
     printf("t1 t2 t3: %.6f, %.6f, %.6f microsecs\n", tsum1/divider*1e6, tsum2/divider*1e6, tsum3/divider*1e6);
 }*/
 
+void FisheyeHOGDescriptor::compute(const Mat& img, vector<float>& descriptors,
+                                   vector<RotatedRect> ROIs) const
+{
+    // Only with locations (defined in ROIs)
+    size_t nwindows = ROIs.size();
+    size_t dsize = getDescriptorSize();
+    descriptors.resize(dsize*nwindows);
+
+    float ang;
+    float c_angle, s_angle;
+    for( size_t i = 0; i < nwindows; i++ )
+    {
+        float* descriptor = &descriptors[i*dsize];
+        Point pt0;
+        Point2f vertices[4];
+        //FisheyeHOGCache::BlockData iBlockData[nblocks];
+
+        float scale = float(winSize.width)/float(ROIs[i].size.width);
+        Size sz(cvRound(scale*img.cols), cvRound(scale*img.rows));
+        Mat smallerImg;
+        resize(img, smallerImg, sz);
+        ROIs[i].points(vertices);
+        pt0 = Point(cvRound(scale*vertices[1].x), cvRound(scale*vertices[1].y));
+        ang = ROIs[i].angle*CV_PI/180.;
+        //Point center = Point(scale*ROIs[i].center);
+
+        FisheyeHOGCache cache(this, smallerImg, Size(0,0), Size(0,0), false, Size(0,0));
+        int nblocks = cache.nblocks.area();
+        int blockHistogramSize = cache.blockHistogramSize;
+        vector<Point> imgOffsets;
+        imgOffsets.resize(nblocks);
+
+        const FisheyeHOGCache::BlockData* blockData = &cache.blockData[0];
+
+        for(int j = 0; j < cache.nblocks.width; j++ )
+            for(int k = 0; k < cache.nblocks.height; k++ )
+            {
+                //FisheyeHOGCache::BlockData& data = iBlockData[j*cache.nblocks.height + k];
+                //data.histOfs = (j*cache.nblocks.height + k)*blockHistogramSize;
+                c_angle = cos(ang);
+                s_angle = sin(ang);
+                imgOffsets[j*cache.nblocks.height+k] = Point(cvRound(j*blockStride.width*c_angle-k*blockStride.height*s_angle),
+                        cvRound(j*blockStride.width*s_angle+k*blockStride.height*c_angle));
+                //data.imgOffset.resize(1);
+                //data.imgOffset[0] = Point(cvRound(j*blockStride.width*c_angle-k*blockStride.height*s_angle),
+                //        cvRound(j*blockStride.width*s_angle+k*blockStride.height*c_angle));
+            }
+        for( int j = 0; j < nblocks; j++ )
+        {
+            const FisheyeHOGCache::BlockData& bj = blockData[j];
+            Point pt = pt0 + imgOffsets[j];
+            //printf("(%d, %d) ", pt.x, pt.y);
+
+            float* dst = descriptor + bj.histOfs;
+            const float* src = cache.getBlock(pt, ang, dst);
+            /*for (int k = 0; k < blockHistogramSize; k++)
+                printf("%.6f, ", src[k]);
+            printf("\n");*/
+            if( src != dst )
+#ifdef HAVE_IPP
+               ippsCopy_32f(src,dst,blockHistogramSize);
+#else
+                for( int k = 0; k < blockHistogramSize; k++ )
+                    dst[k] = src[k];
+#endif
+        }
+        //printf("\n");
+    }
+}
 
 void FisheyeHOGDescriptor::compute(const Mat& img, vector<float>& descriptors,
-                                   Size winStride, Size padding,
-                                   const vector<Point>& locations) const
+                                   Size winStride, const vector<Point>& locations) const
 {
     if( winStride == Size() )
         winStride = cellSize;
-    //Size cacheStride(gcd(winStride.width, blockStride.width),
-    //                 gcd(winStride.height, blockStride.height));
-    Size cacheStride(4,4);
-    size_t nwindows = locations.size();
-    padding.width = (int)alignSize(std::max(padding.width, 0), cacheStride.width);
-    padding.height = (int)alignSize(std::max(padding.height, 0), cacheStride.height);
-    Size paddedImgSize(img.cols + padding.width*2, img.rows + padding.height*2);
 
-    FisheyeHOGCache cache(this, img, padding, padding, nwindows == 0, cacheStride);
+    size_t nwindows = locations.size();
+    //padding.width = (int)alignSize(std::max(padding.width, 0), cacheStride.width);
+    //padding.height = (int)alignSize(std::max(padding.height, 0), cacheStride.height);
+    //Size paddedImgSize(img.cols + padding.width*2, img.rows + padding.height*2);
+
+    FisheyeHOGCache cache(this, img, Size(0,0), Size(0,0), nwindows == 0, Size(0,0));
 
     if( !nwindows )
-        nwindows = cache.windowsInImage(paddedImgSize, winStride).area();
+        nwindows = cache.windowsInImage(Size(img.cols,img.rows), winStride).area();
+    //else
+    //    CV_Assert(winSizes.size() == locations.size());     // locations and winSizes have the same length: window's center and its corresponding size
 
     const FisheyeHOGCache::BlockData* blockData = &cache.blockData[0];
 
@@ -981,6 +1215,7 @@ void FisheyeHOGDescriptor::compute(const Mat& img, vector<float>& descriptors,
     descriptors.resize(dsize*nwindows);
 
     int ang;
+    float c_angle, s_angle;
     for( size_t i = 0; i < nwindows; i++ )
     {
         float* descriptor = &descriptors[i*dsize];
@@ -988,50 +1223,115 @@ void FisheyeHOGDescriptor::compute(const Mat& img, vector<float>& descriptors,
         ang = (int)i%(360/winStride.height);
         Point pt0;
         RotatedRect rect;
+        Point2f vertices[4];
+        FisheyeHOGCache::BlockData iBlockData[nblocks];          // In case of locations are available
+        Point blockImgOffset;           // Used in place of blockData's imgOffset
         if( !locations.empty() )
         {
-            pt0 = locations[i];
-            if( pt0.x < -padding.width || pt0.x > img.cols + padding.width - winSize.width ||
-                pt0.y < -padding.height || pt0.y > img.rows + padding.height - winSize.height )
-                continue;
+            /*float scale = float(winSize.width)/float(winSizes[i].width);
+            Size sz(cvRound(scale*img.cols), cvRound(scale*img.rows));
+            Mat smallerImg;
+            resize(img, smallerImg, sz);
+            Point2f center = scale*locations[i];*/
+            Point2f center = locations[i];
+            rect = RotatedRect(center, winSize, atan2(center.x - winSize.width/2, winSize.height/2 - center.y));
+            rect.points(vertices);
+            pt0 = Point(cvRound(vertices[1].x), cvRound(vertices[1].y));
+            //if( pt0.x < -padding.width || pt0.x > img.cols + padding.width - winSize.width ||
+            //    pt0.y < -padding.height || pt0.y > img.rows + padding.height - winSize.height )
+            //    continue;
+            for(int j = 0; j < cache.nblocks.width; j++ )
+                for(int k = 0; k < cache.nblocks.height; k++ )
+                {
+                	FisheyeHOGCache::BlockData& data = iBlockData[j*cache.nblocks.height + k];
+                    data.histOfs = (j*cache.nblocks.height + k)*blockHistogramSize;
+                    c_angle = cos(rect.angle*4*CV_PI/180.);
+                    s_angle = sin(rect.angle*4*CV_PI/180.);
+                    data.imgOffset.resize(1);
+                    data.imgOffset[0] = Point(cvRound(j*blockStride.width*c_angle-k*blockStride.height*s_angle),
+                            cvRound(j*blockStride.width*s_angle+k*blockStride.height*c_angle));
+                }
         }
         else
         {
-            Point2f vertices[4];
-            rect = cache.getWindow(paddedImgSize, winStride, (int)i);
+            rect = cache.getWindow(Size(img.cols, img.rows), winStride, (int)i);
             rect.points(vertices);
-            pt0 = Point(vertices[1].x-padding.width, vertices[1].y-padding.height);
+            pt0 = Point(vertices[1].x, vertices[1].y);
             // TODO change this
             //CV_Assert(pt0.x % cacheStride.width == 0 && pt0.y % cacheStride.height == 0);
         }
 
         for( int j = 0; j < nblocks; j++ )
         {
-            const FisheyeHOGCache::BlockData& bj = blockData[j];
-            Point pt = pt0 + bj.imgOffset[ang];
+            if( !locations.empty() ) {
+                const FisheyeHOGCache::BlockData& bj = iBlockData[j];
+                Point pt = pt0 + bj.imgOffset[0];
 
-            float* dst = descriptor + bj.histOfs;
-            const float* src = cache.getBlock(pt, i, j, dst);
-            if( src != dst )
+                float* dst = descriptor + bj.histOfs;
+                const float* src = cache.getBlock(pt, rect.angle, dst);
+                if( src != dst )
 #ifdef HAVE_IPP
-               ippsCopy_32f(src,dst,blockHistogramSize);
+                   ippsCopy_32f(src,dst,blockHistogramSize);
 #else
-                for( int k = 0; k < blockHistogramSize; k++ )
-                    dst[k] = src[k];
+                    for( int k = 0; k < blockHistogramSize; k++ )
+                        dst[k] = src[k];
 #endif
+            }
+            else {
+                const FisheyeHOGCache::BlockData& bj = blockData[j];
+                Point pt = pt0 + bj.imgOffset[ang];
+
+                float* dst = descriptor + bj.histOfs;
+                const float* src = cache.getBlock(pt, i, j, dst);
+                if( src != dst )
+#ifdef HAVE_IPP
+                   ippsCopy_32f(src,dst,blockHistogramSize);
+#else
+                    for( int k = 0; k < blockHistogramSize; k++ )
+                        dst[k] = src[k];
+#endif
+            }
         }
+    }
+}
+
+void FisheyeHOGDescriptor::computeMultiScale(const Mat& img, vector<float>& descriptors,
+        Size winStride, const vector<Size>& winSizes, const vector<Point>& locations) const
+{
+    if( winStride == Size() )
+        winStride = cellSize;
+
+    size_t nwindows = locations.size();
+    size_t dsize = getDescriptorSize();
+    descriptors.resize(dsize*nwindows);
+
+    CV_Assert(winSizes.size() == locations.size());     // locations and winSizes have the same length: window's center and its corresponding size
+
+    for (size_t i = 0; i < nwindows; i++) {
+        float* descriptor = &descriptors[i*dsize];
+        float scale = float(winSize.width)/float(winSizes[i].width);
+        Size sz(cvRound(scale*img.cols), cvRound(scale*img.rows));
+        Mat smallerImg;
+        resize(img, smallerImg, sz);
+        Point center = Point(scale*locations[i]);
+
+        vector<Point> location;
+        location.push_back(center);
+
+        //compute(smallerImg,descriptor,winStride,location);
     }
 }
 
 
 void FisheyeHOGDescriptor::detect(const Mat& img,
-    vector<RotatedRect>& hits, vector<double>& weights, double hitThreshold,
+    vector<RotatedRect>& hits, vector<double>& weights, vector<float>& descriptors, double hitThreshold,
     Size winStride, Size padding, const vector<Point>& locations) const
 {
     //clock_t t0, t1, t2, t3;
     //float tsum1, tsum2, tsum3, tsum4;
     hits.clear();
     weights.clear();
+    descriptors.clear();
     if( svmDetector.empty() )
         return;
     if((imgSize.width == 0 && imgSize.height == 0) || radialAngles.rows < img.rows) {   // Assume square image TODO
@@ -1052,7 +1352,7 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
 
     //t1 = clock();
     //printf("%.6f ", ((float)t1-t0)/CLOCKS_PER_SEC);
-    FisheyeHOGCache cache(this, img, padding, padding, nwindows == 0, cacheStride);
+    FisheyeHOGCache cache(this, img, padding, padding, false, cacheStride);
     //t2 = clock();
     //printf("%f s for cache\n", ((float)t)/CLOCKS_PER_SEC);
 
@@ -1079,8 +1379,11 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
     Point2f vertices[4];
     for( size_t i = 0; i < nwindows; i++ )
     {
+        //if (i%(360/winStride.height)==1)
+        //    continue;
         //t0 = clock();
         ang = (int)i%(360/winStride.height);
+        //printf("%d:", ang);
         if( !locations.empty() )
         {
             pt0 = locations[i];
@@ -1091,11 +1394,14 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
         else
         {
             rect = cache.getWindow(paddedImgSize, winStride, (int)i);
+            //printf("(%.1f,%.1f), %.1f ", rect.center.x, rect.center.y, rect.angle);
             rect.points(vertices);
-            pt0 = Point(vertices[1].x-padding.width, vertices[1].y-padding.height);
+            pt0 = Point(cvRound(vertices[1].x-padding.width), cvRound(vertices[1].y-padding.height));
             // TODO change this
             //CV_Assert(pt0.x % cacheStride.width == 0 && pt0.y % cacheStride.height == 0);
         }
+        if (ang == 5)
+            printf("(%d,%d): ", pt0.x, pt0.y);
         double s = rho;
         const float* svmVec = &svmDetector[0];
 #ifdef HAVE_IPP
@@ -1105,10 +1411,12 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
 #endif
         //t1 = clock();
         //tsum1 += (float) t1-t0;
+        float temp[dsize];
         for( j = 0; j < nblocks; j++, svmVec += blockHistogramSize )
         {
             const FisheyeHOGCache::BlockData& bj = blockData[j];
             Point pt = pt0 + bj.imgOffset[ang];
+            //printf("\n%d, ", j);
 
             //t2 = clock();
             const float* vec = cache.getBlock(pt, i, j, &blockHist[0]);    // TODO
@@ -1125,32 +1433,42 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
                     vec[k+2]*svmVec[k+2] + vec[k+3]*svmVec[k+3];
             for( ; k < blockHistogramSize; k++ )
                 s += vec[k]*svmVec[k];
+            for( k = 0; k < blockHistogramSize; k++)
+                temp[j*blockHistogramSize + k] = vec[k];
 #endif
             //t3 = clock();
             //tsum3 += (float) t3-t2;
             //t1 = t3;
         }
+        //printf("\n");
         /*if ((int) i % 10 == 0)
             printf("%.6lf\n", s);*/
         if( s >= hitThreshold )
         {
             hits.push_back(rect);
             weights.push_back(s);
+            printf("%.6f\n", s);
+            for( k = 0; k < dsize; k++)
+                descriptors.push_back(temp[k]);
+                //printf("%.6f,",temp[k]);
+            //printf("\n\n");
         }
         //tsum4 += (float) clock() - t3;
         /*if (i>=4040)
             printf("%d ", (int) i);*/
+        //printf("\n");
     }
+    //printf("\n");
     //cache.printGetBlockTimes(nwindows);
     //t4 = clock();
     //printf("t1, t2, t3, t4: %.6f, %.6f, %.6f, %.6f\n", tsum1*10e6/(nwindows*CLOCKS_PER_SEC), tsum2*10e6/(nwindows*nblocks*CLOCKS_PER_SEC), tsum3*10e6/(nwindows*nblocks*CLOCKS_PER_SEC), tsum4*10e6/(nwindows*CLOCKS_PER_SEC));
 }
 
-void FisheyeHOGDescriptor::detect(const Mat& img, vector<RotatedRect>& hits, double hitThreshold,
+void FisheyeHOGDescriptor::detect(const Mat& img, vector<RotatedRect>& hits, vector<float>& descriptors, double hitThreshold,
                                   Size winStride, Size padding, const vector<Point>& locations) const
 {
     vector<double> weightsV;
-    detect(img, hits, weightsV, hitThreshold, winStride, padding, locations);
+    detect(img, hits, weightsV, descriptors, hitThreshold, winStride, padding, locations);
 }
 
 class FisheyeHOGInvoker : public ParallelLoopBody
@@ -1159,7 +1477,7 @@ public:
     FisheyeHOGInvoker( const FisheyeHOGDescriptor* _hog, const Mat& _img,
                 double _hitThreshold, Size _winStride, Size _padding, 
                 const double* _levelScale, std::vector<RotatedRect> * _vec, Mutex* _mtx,
-                std::vector<double>* _weights=0, std::vector<double>* _scales=0 )
+                std::vector<double>* _weights=0, std::vector<double>* _scales=0, std::vector<float>* _descriptors=0 )
     {
         hog = _hog;
         img = _img;
@@ -1170,6 +1488,7 @@ public:
         vec = _vec;
         weights = _weights;
         scales = _scales;
+        descriptors = _descriptors;
         mtx = _mtx;
     }
 
@@ -1181,6 +1500,7 @@ public:
         Mat smallerImgBuf(maxSz, img.type());
         vector<RotatedRect> locations;
         vector<double> hitsWeights;
+        vector<float> hitsDescriptors;
 
         for( i = i1; i < i2; i++ )
         {
@@ -1192,7 +1512,7 @@ public:
             else
                 resize(img, smallerImg, sz);
             //printf("Before %.4lf\n", scale);
-            hog->detect(smallerImg, locations, hitsWeights, hitThreshold, winStride, padding);
+            hog->detect(smallerImg, locations, hitsWeights, hitsDescriptors, hitThreshold, winStride, padding);
             //printf("After  %.4lf\n", scale);
             Size scaledWinSize = Size(cvRound(hog->winSize.width*scale), cvRound(hog->winSize.height*scale));
 
@@ -1219,6 +1539,16 @@ public:
                 }
                 mtx->unlock();
             }
+
+            if (descriptors && (!hitsDescriptors.empty()))
+            {
+                mtx->lock();
+                for (size_t j = 0; j < locations.size(); j++)
+                {
+                    descriptors->push_back(hitsDescriptors[j]);
+                }
+                mtx->unlock();
+            }
         }
     }
 
@@ -1231,6 +1561,7 @@ public:
     std::vector<RotatedRect>* vec;
     std::vector<double>* weights;
     std::vector<double>* scales;
+    std::vector<float>* descriptors;
     Mutex* mtx;
 };
 
@@ -1260,6 +1591,7 @@ void FisheyeHOGDescriptor::detectMultiScale(
     std::vector<double> tempScales;
     std::vector<double> tempWeights;
     std::vector<double> foundScales;
+    std::vector<float>  tempDescriptors;
     Mutex mtx;
 
     parallel_for_(Range(0, (int)levelScale.size()),
@@ -1289,6 +1621,22 @@ void FisheyeHOGDescriptor::detectMultiScale(const Mat& img, vector<RotatedRect>&
     detectMultiScale(img, foundLocations, foundWeights, hitThreshold, winStride,
                      padding, scale0, finalThreshold, useMeanshiftGrouping);
 }
+
+/*void FisheyeHOGDescriptor:: detectFromCeiling(const Mat& img, vector<RotatedRect>& foundLocations, vector<double> foundWeights, double hitThreshold, Size winStride, Size padding, double finalThreshold, bool useMeanshiftGrouping) const
+{
+    double scale = 1.;
+    int levels = 0;
+
+    vector<double> levelScale;
+    for( levels = 0; levels < nlevels; levels++ )
+    {
+        levelScale.push_back(scale);
+        if( cvRound(img.cols/scale) < 2*winSize.width ||
+            cvRound(img.rows/scale) < 2*winSize.height)
+            break;
+
+    }
+}*/
 
 typedef RTTIImpl<FisheyeHOGDescriptor> FisheyeHOGRTTI;
 

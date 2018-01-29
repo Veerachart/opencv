@@ -693,19 +693,22 @@ public:
     CV_WRAP virtual void save(const String& filename, const String& objname=String()) const;
     virtual void copyTo(FisheyeHOGDescriptor& c) const;
 
-    CV_WRAP virtual void compute(const Mat& img,
+    virtual void compute(const Mat& img,
                          CV_OUT vector<float>& descriptors,
-                         Size winStride=Size(), Size padding=Size(),
-                         const vector<Point>& locations=vector<Point>()) const;
+                         Size winStride=Size(), const vector<Point>& locations=vector<Point>()) const;
+    CV_WRAP virtual void compute(const Mat& img, CV_OUT vector<float>& descriptors,
+                                       vector<RotatedRect> ROIs) const;
+    CV_WRAP virtual void computeMultiScale(const Mat& img, vector<float>& descriptors,
+            Size winStride=Size(), const vector<Size>& winSizes=vector<Size>(), const vector<Point>& locations=vector<Point>()) const;
     //with found weights output
     CV_WRAP virtual void detect(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
-                        CV_OUT vector<double>& weights,
+                        CV_OUT vector<double>& weights, CV_OUT vector<float>& descriptors,
                         double hitThreshold=0, Size winStride=Size(4,4),
                         Size padding=Size(),
                         const vector<Point>& searchLocations=vector<Point>()) const;
     //without found weights output
     virtual void detect(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
-                        double hitThreshold=0, Size winStride=Size(4,4),
+                        CV_OUT vector<float>& descriptors, double hitThreshold=0, Size winStride=Size(4,4),
                         Size padding=Size(),
                         const vector<Point>& searchLocations=vector<Point>()) const;
     //with result weights output
