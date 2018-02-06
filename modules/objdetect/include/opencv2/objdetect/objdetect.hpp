@@ -645,6 +645,12 @@ CV_EXPORTS_W void drawDataMatrixCodes(InputOutputArray image,
 
 struct CV_EXPORTS_W FisheyeHOGDescriptor
 {
+    struct AngleLookUp {
+        vector<int> du;
+        vector<int> dv;
+        float c_theta, s_theta;
+        vector<Point> origins;
+    };
 public:
     enum { L2Hys=0 };
     enum { DEFAULT_NLEVELS=64 };
@@ -653,19 +659,23 @@ public:
         blockSize(16,16), blockStride(8,8), cellSize(8,8), nbins(9), derivAperture(1), 
         winSigma(-1), histogramNormType(FisheyeHOGDescriptor::L2Hys), 
         L2HysThreshold(0.2), gammaCorrection(true),
-        nlevels(FisheyeHOGDescriptor::DEFAULT_NLEVELS)
-    {}
+        nlevels(FisheyeHOGDescriptor::DEFAULT_NLEVELS), imgBorder(12)
+    {
+        initInternal();
+    }
 
     CV_WRAP FisheyeHOGDescriptor(Size _winSize, Size _blockSize, Size _blockStride,
                   Size _cellSize, int _nbins, int _derivAperture=1, double _winSigma=-1,
                   int _histogramNormType=FisheyeHOGDescriptor::L2Hys,
                   double _L2HysThreshold=0.2, bool _gammaCorrection=false,
-                  int _nlevels=FisheyeHOGDescriptor::DEFAULT_NLEVELS)
+                  int _nlevels=FisheyeHOGDescriptor::DEFAULT_NLEVELS, int _border=12)
     : winSize(_winSize), blockSize(_blockSize), blockStride(_blockStride), cellSize(_cellSize),
     nbins(_nbins), derivAperture(_derivAperture), winSigma(_winSigma),
     histogramNormType(_histogramNormType), L2HysThreshold(_L2HysThreshold),
-    gammaCorrection(_gammaCorrection), nlevels(_nlevels)
-    {}
+    gammaCorrection(_gammaCorrection), nlevels(_nlevels), imgBorder(_border)
+    {
+        initInternal();
+    }
 
     CV_WRAP FisheyeHOGDescriptor(const String& filename)
     {
@@ -678,6 +688,8 @@ public:
     }
 
     virtual ~FisheyeHOGDescriptor() {}
+    
+    void initInternal();
 
     CV_WRAP size_t getDescriptorSize() const;
     CV_WRAP bool checkDetectorSize() const;
@@ -693,13 +705,13 @@ public:
     CV_WRAP virtual void save(const String& filename, const String& objname=String()) const;
     virtual void copyTo(FisheyeHOGDescriptor& c) const;
 
-    virtual void compute(const Mat& img,
-                         CV_OUT vector<float>& descriptors,
-                         Size winStride=Size(), const vector<Point>& locations=vector<Point>()) const;
+    //virtual void compute(const Mat& img,
+    //                     CV_OUT vector<float>& descriptors,
+    //                     Size winStride=Size(), const vector<Point>& locations=vector<Point>()) const;
     CV_WRAP virtual void compute(const Mat& img, CV_OUT vector<float>& descriptors,
                                        vector<RotatedRect> ROIs) const;
-    CV_WRAP virtual void computeMultiScale(const Mat& img, vector<float>& descriptors,
-            Size winStride=Size(), const vector<Size>& winSizes=vector<Size>(), const vector<Point>& locations=vector<Point>()) const;
+    //CV_WRAP virtual void computeMultiScale(const Mat& img, vector<float>& descriptors,
+    //        Size winStride=Size(), const vector<Size>& winSizes=vector<Size>(), const vector<Point>& locations=vector<Point>()) const;
     //with found weights output
     CV_WRAP virtual void detect(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
                         CV_OUT vector<double>& weights, CV_OUT vector<float>& descriptors,
@@ -734,6 +746,7 @@ public:
     CV_PROP Size blockSize;
     CV_PROP Size blockStride;
     CV_PROP Size cellSize;
+    CV_PROP Size nblocks;
     CV_PROP int nbins;
     CV_PROP int derivAperture;
     CV_PROP double winSigma;
@@ -742,6 +755,8 @@ public:
     CV_PROP bool gammaCorrection;
     CV_PROP vector<float> svmDetector;
     CV_PROP int nlevels;
+	AngleLookUp tables[90];         // Lookup Table used for detection at various angles
+	CV_PROP int imgBorder;          // Safety border (usually black for fisheye camera)
 
 
    /*// evaluate specified ROI and return confidence value for each location
