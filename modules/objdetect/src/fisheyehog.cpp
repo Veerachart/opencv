@@ -548,7 +548,7 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
     nblocks = descriptor->nblocks;
     ncells = Size(blockSize.width/cellSize.width, blockSize.height/cellSize.height);
     blockHistogramSize = ncells.width*ncells.height*nbins;
-    //printf("%d, %d, %d\n", blockHistogramSize, nblocks.width, nblocks.height);
+    //printf("%d, %d, %d\n", blockHistogramSize, nblocks.width, nblocks.height)
 
     /*if( useCache )
     {
@@ -1427,7 +1427,7 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
         else
         {
             rect = cache.getWindow(paddedImgSize, winStride, (int)i);
-            pt0 = tables[ang].origins[(61-rad + (nblocks.height+1)*2)*nblocks.width + 6] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+            pt0 = tables[ang].origins[(cache.radMax-rad + (nblocks.height+1)*2)*nblocks.width + 6] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
             // TODO change this
             //CV_Assert(pt0.x % cacheStride.width == 0 && pt0.y % cacheStride.height == 0);
         }
@@ -1446,7 +1446,7 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
         {
             jblock = j/nblocks.height;
             iblock = j - jblock*nblocks.height;
-            Point pt = tables[ang].origins[(61-rad + (nblocks.height-iblock+1)*2)*nblocks.width + 6-jblock] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+            Point pt = tables[ang].origins[(cache.radMax-rad + (nblocks.height-iblock+1)*2)*nblocks.width + 6-jblock] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
             //printf("\n%d, ", j);
 
             //t2 = clock();
@@ -1478,7 +1478,7 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
         {
             hits.push_back(rect);
             weights.push_back(s);
-            printf("%.6f\n", s);
+            //printf("%.6f\n", s);
             for( k = 0; k < dsize; k++)
                 descriptors.push_back(temp[k]);
                 //printf("%.6f,",temp[k]);
@@ -1542,9 +1542,7 @@ public:
                 smallerImg = Mat(sz, img.type(), img.data, img.step);
             else
                 resize(img, smallerImg, sz);
-            //printf("Before %.4lf\n", scale);
             hog->detect(smallerImg, locations, hitsWeights, hitsDescriptors, hitThreshold, winStride, padding);
-            //printf("After  %.4lf\n", scale);
             Size scaledWinSize = Size(cvRound(hog->winSize.width*scale), cvRound(hog->winSize.height*scale));
 
             mtx->lock();
@@ -1599,7 +1597,7 @@ public:
 
 void FisheyeHOGDescriptor::detectMultiScale(
     const Mat& img, vector<RotatedRect>& foundLocations, vector<double>& foundWeights,
-    double hitThreshold, Size winStride, Size padding,
+    vector <float>& foundDescriptors, double hitThreshold, Size winStride, Size padding,
     double scale0, double finalThreshold, bool useMeanshiftGrouping) const
 {
     double scale = 1.;
@@ -1609,8 +1607,8 @@ void FisheyeHOGDescriptor::detectMultiScale(
     for( levels = 0; levels < nlevels; levels++ )
     {
         levelScale.push_back(scale);
-        if( cvRound(img.cols/scale) < 2*winSize.width ||
-            cvRound(img.rows/scale) < 2*winSize.height ||
+        if( cvRound(img.cols/(2*scale) - imgBorder) < winSize.width ||
+            cvRound(img.rows/(2*scale) - imgBorder) < winSize.height ||
             scale0 <= 1 )
             break;
         scale *= scale0;
@@ -1645,12 +1643,13 @@ void FisheyeHOGDescriptor::detectMultiScale(
 }
 
 void FisheyeHOGDescriptor::detectMultiScale(const Mat& img, vector<RotatedRect>& foundLocations,
+                                            vector <float>& foundDescriptors, 
                                             double hitThreshold, Size winStride, Size padding,
                                             double scale0, double finalThreshold, bool useMeanshiftGrouping) const
 {
     vector<double> foundWeights;
-    detectMultiScale(img, foundLocations, foundWeights, hitThreshold, winStride,
-                     padding, scale0, finalThreshold, useMeanshiftGrouping);
+    detectMultiScale(img, foundLocations, foundWeights, foundDescriptors, hitThreshold, 
+                     winStride, padding, scale0, finalThreshold, useMeanshiftGrouping);
 }
 
 /*void FisheyeHOGDescriptor:: detectFromCeiling(const Mat& img, vector<RotatedRect>& foundLocations, vector<double> foundWeights, double hitThreshold, Size winStride, Size padding, double finalThreshold, bool useMeanshiftGrouping) const

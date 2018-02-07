@@ -724,13 +724,17 @@ public:
                         Size padding=Size(),
                         const vector<Point>& searchLocations=vector<Point>()) const;
     //with result weights output
-    CV_WRAP virtual void detectMultiScale(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
-                                  CV_OUT vector<double>& foundWeights, double hitThreshold=0,
-                                  Size winStride=Size(), Size padding=Size(), double scale=1.05,
+    CV_WRAP virtual void detectMultiScale(const Mat& img, 
+                                  CV_OUT vector<RotatedRect>& foundLocations,
+                                  CV_OUT vector<double>& foundWeights, 
+                                  CV_OUT vector <float>& foundDescriptors, 
+                                  double hitThreshold=0,
+                                  Size winStride=Size(4,4), Size padding=Size(), double scale=1.05,
                                   double finalThreshold=2.0, bool useMeanshiftGrouping = false) const;
     //without found weights output
     virtual void detectMultiScale(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
-                                  double hitThreshold=0, Size winStride=Size(),
+                                  CV_OUT vector <float>& foundDescriptors, 
+                                  double hitThreshold=0, Size winStride=Size(4,4),
                                   Size padding=Size(), double scale=1.05,
                                   double finalThreshold=2.0, bool useMeanshiftGrouping = false) const;
 
