@@ -740,6 +740,17 @@ public:
                         CV_OUT vector<float>& descriptors, double hitThreshold=0, Size winStride=Size(4,2),
                         Size padding=Size(),
                         const vector<Point>& searchLocations=vector<Point>()) const;
+    //with found weights output
+    CV_WRAP virtual void detectArea(const Mat& img, const vector<RotatedRect>& searchArea, 
+                        CV_OUT vector<RotatedRect>& foundLocations,
+                        CV_OUT vector<double>& weights, CV_OUT vector<float>& descriptors,
+                        double hitThreshold=0, Size winStride=Size(4,2),
+                        Size padding=Size()) const;
+    //without found weights output
+    virtual void detectArea(const Mat& img, const vector<RotatedRect>& searchArea, 
+                        CV_OUT vector<RotatedRect>& foundLocations,
+                        CV_OUT vector<float>& descriptors, double hitThreshold=0, Size winStride=Size(4,2),
+                        Size padding=Size()) const;
     //with result weights output
     CV_WRAP virtual void detectMultiScale(const Mat& img, 
                                   CV_OUT vector<RotatedRect>& foundLocations,

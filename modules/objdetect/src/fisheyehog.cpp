@@ -57,6 +57,14 @@
 
 namespace cv
 {
+bool isInRotatedBox(Point2f point, RotatedRect rect) {
+	float angle = rect.angle*CV_PI/180.;
+	Mat M = (Mat_<float>(2,2) << cos(angle), sin(angle),
+								-sin(angle), cos(angle));
+	Mat pt = (Mat_<float>(2,1) << point.x - rect.center.x, point.y - rect.center.y);
+	Mat pt2 = M*pt;
+	return pt2.at<float>(0,0) > -rect.size.width/2 && pt2.at<float>(0,0) < rect.size.width/2 && pt2.at<float>(1,0) > -rect.size.height/2 && pt2.at<float>(1,0) < rect.size.height/2;
+}
 
 size_t FisheyeHOGDescriptor::getDescriptorSize() const
 {
@@ -1525,6 +1533,225 @@ void FisheyeHOGDescriptor::detect(const Mat& img, vector<RotatedRect>& hits, vec
 {
     vector<double> weightsV;
     detect(img, hits, weightsV, descriptors, hitThreshold, winStride, padding, locations);
+}
+
+void FisheyeHOGDescriptor::detectArea(const Mat& img, const vector<RotatedRect>& areas,
+    vector<RotatedRect>& hits, vector<double>& weights, vector<float>& descriptors,
+    double hitThreshold, Size winStride, Size padding) const
+{
+    //clock_t t0, t1, t2, t3;
+    //float tsum1, tsum2, tsum3, tsum4;
+    hits.clear();
+    weights.clear();
+    descriptors.clear();
+    if( svmDetector.empty() )
+        return;
+    if((imgSize.width == 0 && imgSize.height == 0) || radialAngles.rows < img.rows) {   // Assume square image TODO
+        // no image size given, and therefore no radial angle adjustment for gradients
+        // If the image size is smaller than the existing radialAngles matrix, just cropt it to the center
+        //setAngleMatrix(img.size());
+        printf("Please call setAngleMatrix(_imgSize)\n");
+        return;
+    }
+
+    if( winStride == Size() )
+        winStride = cellSize;
+    Size cacheStride = detectStride;
+    size_t nwindows = 0;
+    padding.width = (int)alignSize(std::max(padding.width, 0), cacheStride.width);
+    padding.height = (int)alignSize(std::max(padding.height, 0), cacheStride.height);
+    Size paddedImgSize(img.cols + padding.width*2, img.rows + padding.height*2);
+
+    RotatedRect area;
+    Point2f vertices[4];
+    Point2f img_center(float(img.cols/2), float(img.rows/2));
+    float r1, r2, theta1, theta2;
+    vector<Point2f> limits;
+    //int64 total;
+    //int64 start = getTickCount();
+    /*for (int a = 0; a < areas.size(); a++) {
+        area = areas[a];
+        area.points(vertices);
+        r1 = norm(area.center-img_center) - area.size.height/2 + winSize.height/2;
+        r2 = norm(vertices[1]-img_center) - winSize.height/2;
+        // r1 must be less than r2
+        CV_Assert(r1 < r2);
+        theta1 = atan2(vertices[0].x - img_center.x, img_center.y - vertices[0].y) * 180./CV_PI;
+
+        // convert to [0,360) range
+        if (theta1 < 0)
+            theta1 += 360.;
+        theta2 = atan2(vertices[3].x - img_center.x, img_center.y - vertices[3].y) * 180./CV_PI;
+        if (theta2 < 0)
+            theta2 += 360.;
+
+        limits.push_back(Point2f(r1, theta1));
+        limits.push_back(Point2f(r2, theta2));
+        printf("%6f, %.6f, %.6f, %.6f\n", r1, theta1, r2, theta2);
+    }
+    total += getTickCount()-start;*/
+
+    //t1 = clock();
+    //printf("%.6f ", ((float)t1-t0)/CLOCKS_PER_SEC);
+    FisheyeHOGCache cache(this, img, padding, padding, nwindows == 0, cacheStride);
+    //t2 = clock();
+    //printf("%f s for cache\n", ((float)t)/CLOCKS_PER_SEC);
+    /*for (int rad = 0; rad <= cache.radMax; rad++) {
+        Point p = tables[0].origins[(cache.radMax-rad + winSize.height/cacheStride.height)*nblocks.width + 6] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+        printf("(%d,%d)\n", p.x, p.y);
+    }*/
+
+    if( !nwindows )
+        nwindows = cache.windowsInImage(paddedImgSize, winStride).area();
+
+    const FisheyeHOGCache::BlockData* blockData = &cache.blockData[0];
+
+    int blockHistogramSize = cache.blockHistogramSize;
+    size_t dsize = getDescriptorSize();
+
+    double rho = svmDetector.size() > dsize ? svmDetector[dsize] : 0;
+    vector<float> blockHist(blockHistogramSize);
+
+    //tsum1 = 0;
+    //tsum2 = 0;
+    //tsum3 = 0;
+    //tsum4 = 0;
+    //t3 = clock();
+    int rad, ang;
+    Point pt0;
+    RotatedRect rect;
+    Point2f lim1, lim2;
+    for( size_t i = 0; i < nwindows; i++ )
+    {
+        //if (i%(360/winStride.height)==1)
+        //    continue;
+        //t0 = clock();
+        ang = (int)i%(360/winStride.height);
+        rad = (int)i/(360/winStride.height);
+
+        /*start = getTickCount();
+        float r_px = norm(tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width/2)*nblocks.width + 2]);
+        float theta_px = ang*float(detectStride.height);
+
+        bool isInAreas = false;
+        for (int check = 0; check < limits.size(); check += 2) {
+            lim1 = limits[check];
+            lim2 = limits[check+1];
+            if (r_px >= lim1.x && r_px <= lim2.x) {     // r1 <= r_px <= r2
+                if (lim1.y > lim2.y) {                  // theta1 > theta2 : crossing the 0-degree line
+                    if (theta_px > lim1.y || theta_px < lim2.y) {
+                        isInAreas = true;
+                        break;
+                    }
+                }
+                else {                                  // normal
+                    if (theta_px > lim1.y && theta_px < lim2.y) {
+                        isInAreas = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!isInAreas)          // Not in the area, skip the detection
+            continue;
+        total += getTickCount()-start;*/
+        //printf("%.6f, %.6f", r_px, theta_px);
+        //printf("%d:", ang);
+        rect = cache.getWindow(paddedImgSize, winStride, (int)i);
+        //printf("\t%.6f, %.6f", norm(rect.center-img_center), rect.angle);
+        rect.points(vertices);
+        bool isInAreas = false;
+        //start = getTickCount();
+        for (int check = 0; check < areas.size(); check++) {
+        	int count = 0;
+        	for (int v = 0; v < 4; v++) {
+        		if (isInRotatedBox(vertices[v], areas[check])) {
+        			count++;
+        		}
+        	}
+        	if (count >= 3) {
+        		// At least 3 vertices in the area
+        		isInAreas = true;
+        		break;
+        	}
+        }
+        //total += getTickCount()-start;
+        if (!isInAreas)
+        	continue;
+        pt0 = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width)*nblocks.width + 6] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+        // TODO change this
+        //CV_Assert(pt0.x % cacheStride.width == 0 && pt0.y % cacheStride.height == 0);
+        double s = rho;
+        const float* svmVec = &svmDetector[0];
+#ifdef HAVE_IPP
+        int j;
+#else
+        int j, k;
+#endif
+        //t1 = clock();
+        //tsum1 += (float) t1-t0;
+        float temp[dsize];
+        int iblock, jblock;
+        for( j = 0; j < cache.nblocks.area(); j++, svmVec += blockHistogramSize )
+        {
+            jblock = j/nblocks.height;
+            iblock = j - jblock*nblocks.height;
+            Point pt = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width - iblock*blockStride.height/cacheStride.width)*nblocks.width + 6-jblock] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+            //printf("\n%d, ", j);
+
+            //t2 = clock();
+            const float* vec = cache.getBlock(pt, i, j, &blockHist[0]);    // TODO
+            //t2 = clock();
+            //tsum2 += (float) t2-t1;
+
+#ifdef HAVE_IPP
+            Ipp32f partSum;
+            ippsDotProd_32f(vec,svmVec,blockHistogramSize,&partSum);
+            s += (double)partSum;
+#else
+            for( k = 0; k <= blockHistogramSize - 4; k += 4 )
+                s += vec[k]*svmVec[k] + vec[k+1]*svmVec[k+1] +
+                    vec[k+2]*svmVec[k+2] + vec[k+3]*svmVec[k+3];
+            for( ; k < blockHistogramSize; k++ )
+                s += vec[k]*svmVec[k];
+            for( k = 0; k < blockHistogramSize; k++)
+                temp[j*blockHistogramSize + k] = vec[k];
+#endif
+            //t3 = clock();
+            //tsum3 += (float) t3-t2;
+            //t1 = t3;
+        }
+        //printf("\n");
+        /*if ((int) i % 10 == 0)
+            printf("%.6lf\n", s);*/
+        if( s >= hitThreshold )
+        {
+            hits.push_back(rect);
+            weights.push_back(s);
+            //printf("%.6f\n", s);
+            for( k = 0; k < dsize; k++)
+                descriptors.push_back(temp[k]);
+                //printf("%.6f,",temp[k]);
+            //printf("\n\n");
+        }
+        //tsum4 += (float) clock() - t3;
+        /*if (i>=4040)
+            printf("%d ", (int) i);*/
+        //printf("\n");
+    }
+    //printf("Time: %lf\n", double(total)/getTickFrequency());
+    //printf("\n");
+    //cache.printGetBlockTimes(nwindows);
+    //t4 = clock();
+    //printf("t1, t2, t3, t4: %.6f, %.6f, %.6f, %.6f\n", tsum1*10e6/(nwindows*CLOCKS_PER_SEC), tsum2*10e6/(nwindows*nblocks*CLOCKS_PER_SEC), tsum3*10e6/(nwindows*nblocks*CLOCKS_PER_SEC), tsum4*10e6/(nwindows*CLOCKS_PER_SEC));
+}
+
+void FisheyeHOGDescriptor::detectArea(const Mat& img, const vector<RotatedRect>& areas,
+                                     vector<RotatedRect>& hits, vector<float>& descriptors,
+                                     double hitThreshold, Size winStride, Size padding) const
+{
+    vector<double> weightsV;
+    detectArea(img, areas, hits, weightsV, descriptors, hitThreshold, winStride, padding);
 }
 
 class FisheyeHOGInvoker : public ParallelLoopBody
