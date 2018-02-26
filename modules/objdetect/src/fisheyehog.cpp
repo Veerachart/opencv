@@ -94,11 +94,16 @@ void FisheyeHOGDescriptor::initInternal(void)
 {
     nblocks = Size((winSize.width - blockSize.width)/blockStride.width + 1,
                    (winSize.height - blockSize.height)/blockStride.height + 1);
-    setAngleMatrix(Size(2000,2000));
+    setAngleMatrix(Size(1000,1000));
+    tables = new AngleLookUp [360/detectStride.height];
     AngleLookUp* table = 0;
-    for (int ang = 0; ang < 90; ang++) {
+    for (int ang = 0; ang < 360/detectStride.height; ang++) {
         table = &tables[ang];
-        float angle = 4*ang*CV_PI/180.;
+        // clear first
+        table->du.clear();
+        table->dv.clear();
+        table->origins.clear();
+        float angle = detectStride.height*ang*CV_PI/180.;
         float c_angle = cos(angle);
         float s_angle = sin(angle);
         table->c_theta = c_angle;
@@ -114,7 +119,8 @@ void FisheyeHOGDescriptor::initInternal(void)
     int radius = 0;
     while (radius <= imgSize.height/2 - imgBorder)        // Inner to outer
     {
-        for (int ang = 0; ang < 90; ang++) {
+        for (int ang = 0; ang < 360/detectStride.height; ang++) {
+            
             table = &tables[ang];
             // Add row
             float c_angle = table->c_theta;
@@ -126,8 +132,22 @@ void FisheyeHOGDescriptor::initInternal(void)
                 table->origins.push_back(origin);
             }
         }
-        radius += 4;         // TODO make it changeable according to winStride
+        radius += detectStride.width;
     }
+    
+    /*for (int ang = 0; ang < 90; ang++) {
+        table = &tables[ang];
+        Mat draw = Mat::zeros(Size(1000,1000), CV_8UC3);
+        circle(draw, Point(draw.cols/2, draw.rows/2), 2, Scalar(255,255,255), -1);
+        for (int pt = 0; pt < table->origins.size(); pt++) {
+            circle(draw, table->origins.at(pt) + Point(draw.cols/2, draw.rows/2), 1, Scalar(0,255-pt, pt), -1);
+        }
+        imshow("points", draw);
+        char c = waitKey(0);
+        if (c == 27)
+            break;
+    }
+    */
     /*for (int ang = 0; ang < 90; ang++) {
         table = &tables[ang];
         reverse(table->origins.begin(), table->origins.end());
@@ -178,6 +198,7 @@ bool FisheyeHOGDescriptor::read(FileNode& obj)
         vecNode >> svmDetector;
         CV_Assert(checkDetectorSize());
     }
+    initInternal();
     return true;
 }
 
@@ -565,8 +586,8 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
     
     if( useCache )
     {
-        Size cacheSize(90*nblocks.width,
-                       (winSize.height/cacheStride.height)+1);
+        Size cacheSize(360/cacheStride.height*nblocks.width,
+                       (winSize.height/cacheStride.width)+1);
         //printf("[%d,%d]\n",cacheSize.width,cacheSize.height);
         blockCache.create(cacheSize.height, cacheSize.width*blockHistogramSize);
         blockCacheFlags.create(cacheSize);
@@ -717,11 +738,11 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
             weight4(i,j) = data->histWeights[3];*/
             data->i = i;
             data->j = j;
-            data->gradOfs.resize(90);               // TODO make it a parameter
-            data->qangleOfs.resize(90);             // TODO
+            data->gradOfs.resize(360/cacheStride.height);               // TODO make it a parameter
+            data->qangleOfs.resize(360/cacheStride.height);             // TODO
             //clock_t t;
             //float t_sec = 0.;
-            for (ang = 0; ang < 90; ang++) {    // TODO
+            for (ang = 0; ang < 360/cacheStride.height; ang++) {    // TODO
                 tables = &descriptor->tables[ang];
                 //t = clock();
                 data->gradOfs[ang] = (grad.cols*tables->dv[j*blockSize.height + i] + tables->du[j*blockSize.height + i])*2;
@@ -761,10 +782,10 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
             BlockData& data = blockData[j*nblocks.height + i];
             data.histOfs = (j*nblocks.height + i)*blockHistogramSize;
         }
-    if (cacheStride.height == 0)
+    if (cacheStride.width == 0)
         radMax = 0;
     else
-        radMax = (grad.rows/2 - winSize.height - imgBorder - 0)/cacheStride.height;
+        radMax = (grad.rows/2 - winSize.height - imgBorder - 0)/cacheStride.width;
     tsum1 = tsum2 = tsum3 = 0;
     //printf("\n");
 }
@@ -776,8 +797,8 @@ const float* FisheyeHOGCache::getBlock(Point pt, int _widx, int _bidx, float* bu
     //image.copyTo(draw);
     //clock_t t_0, t_1, t_2, t_3;
     //t_0 = clock();
-    int rad = _widx/90;         // TODO
-    int ang = _widx - rad*90;         // TODO
+    int rad = _widx/(360/cacheStride.height);         // TODO
+    int ang = _widx - rad*360/cacheStride.height;         // TODO
     int jwidth = _bidx/nblocks.height;
     int jheight = _bidx - jwidth*nblocks.height;
     //if (ang == 0 && jwidth == 0 && jheight == 0)
@@ -826,13 +847,13 @@ const float* FisheyeHOGCache::getBlock(Point pt, int _widx, int _bidx, float* bu
         //CV_Assert( pt.x % cacheStride.width == 0 &&
         //           pt.y % cacheStride.height == 0 );
         Point cacheIdx((nblocks.width*ang+jwidth),                             //TODO
-                      (rad+jheight*2) % blockCache.rows);
+                      (rad+jheight*(descriptor->blockStride.height/cacheStride.width)) % blockCache.rows);
         //printf("(%d,%d)-%d/%d/%d/%d, ", cacheIdx.x, cacheIdx.y, rad, ang, jwidth, jheight);
-        if( rad+jheight*2 != ymaxCached[cacheIdx.y] )
+        if( rad+jheight*(descriptor->blockStride.height/cacheStride.width) != ymaxCached[cacheIdx.y] )
         {
             Mat_<uchar> cacheRow = blockCacheFlags.row(cacheIdx.y);
             cacheRow = (uchar)0;
-            ymaxCached[cacheIdx.y] = rad+jheight*2;
+            ymaxCached[cacheIdx.y] = rad+jheight*(descriptor->blockStride.height/cacheStride.width);
             //printf("\n");
         }
 
@@ -1140,7 +1161,7 @@ RotatedRect FisheyeHOGCache::getWindow(Size imageSize, Size winStride, int idx) 
     int nwindowsAngle = 360/angStep;
     int rad = idx/nwindowsAngle;
     int angle = idx - nwindowsAngle*rad;
-    Point center = descriptor->tables[angle].origins[(radMax-rad + nblocks.height+1)*nblocks.width + 2];
+    Point center = descriptor->tables[angle].origins[(radMax-rad + winSize.height/cacheStride.width/2)*nblocks.width + 2];
     //printf("%.6f\n", (float)imageSize.height/2-9-winSize.height/2-rad*winStride.width);
     return RotatedRect(Point2f(center.x + imageSize.width/2, center.y + imageSize.height/2), 
                        winSize, angle*angStep);
@@ -1377,7 +1398,7 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
 
     if( winStride == Size() )
         winStride = cellSize;
-    Size cacheStride(4,4);
+    Size cacheStride = detectStride;
     size_t nwindows = locations.size();
     padding.width = (int)alignSize(std::max(padding.width, 0), cacheStride.width);
     padding.height = (int)alignSize(std::max(padding.height, 0), cacheStride.height);
@@ -1388,6 +1409,10 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
     FisheyeHOGCache cache(this, img, padding, padding, nwindows == 0, cacheStride);
     //t2 = clock();
     //printf("%f s for cache\n", ((float)t)/CLOCKS_PER_SEC);
+    /*for (int rad = 0; rad <= cache.radMax; rad++) {
+        Point p = tables[0].origins[(cache.radMax-rad + winSize.height/cacheStride.height)*nblocks.width + 6] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+        printf("(%d,%d)\n", p.x, p.y);
+    }*/
 
     if( !nwindows )
         nwindows = cache.windowsInImage(paddedImgSize, winStride).area();
@@ -1427,7 +1452,7 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
         else
         {
             rect = cache.getWindow(paddedImgSize, winStride, (int)i);
-            pt0 = tables[ang].origins[(cache.radMax-rad + (nblocks.height+1)*2)*nblocks.width + 6] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+            pt0 = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width)*nblocks.width + 6] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
             // TODO change this
             //CV_Assert(pt0.x % cacheStride.width == 0 && pt0.y % cacheStride.height == 0);
         }
@@ -1446,7 +1471,7 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
         {
             jblock = j/nblocks.height;
             iblock = j - jblock*nblocks.height;
-            Point pt = tables[ang].origins[(cache.radMax-rad + (nblocks.height-iblock+1)*2)*nblocks.width + 6-jblock] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+            Point pt = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width - iblock*blockStride.height/cacheStride.width)*nblocks.width + 6-jblock] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
             //printf("\n%d, ", j);
 
             //t2 = clock();
@@ -1640,6 +1665,7 @@ void FisheyeHOGDescriptor::detectMultiScale(
     {
         groupRectangles(foundLocations, foundWeights, (int)finalThreshold, 0.2);
     }*/
+    groupRectangles(foundLocations, foundWeights, (int)finalThreshold, 0.2);
 }
 
 void FisheyeHOGDescriptor::detectMultiScale(const Mat& img, vector<RotatedRect>& foundLocations,
@@ -3231,7 +3257,7 @@ void FisheyeHOGDescriptor::readALTModel(std::string modelfile)
    fclose(modelfl);
 }
 
-/*void FisheyeHOGDescriptor::groupRectangles(vector<cv::Rect>& rectList, vector<double>& weights, int groupThreshold, double eps) const
+void FisheyeHOGDescriptor::groupRectangles(vector<cv::RotatedRect>& rectList, vector<double>& weights, int groupThreshold, double eps) const
 {
     if( groupThreshold <= 0 || rectList.empty() )
     {
@@ -3241,9 +3267,9 @@ void FisheyeHOGDescriptor::readALTModel(std::string modelfile)
     CV_Assert(rectList.size() == weights.size());
 
     vector<int> labels;
-    int nclasses = partition(rectList, labels, SimilarRects(eps));
+    int nclasses = partition(rectList, labels, SimilarRotatedRects(eps));
 
-    vector<cv::Rect_<double> > rrects(nclasses);
+    vector<cv::RotatedRect > rrects(nclasses);
     vector<int> numInClass(nclasses, 0);
     vector<double> foundWeights(nclasses, -std::numeric_limits<double>::max());
     int i, j, nlabels = (int)labels.size();
@@ -3251,10 +3277,11 @@ void FisheyeHOGDescriptor::readALTModel(std::string modelfile)
     for( i = 0; i < nlabels; i++ )
     {
         int cls = labels[i];
-        rrects[cls].x += rectList[i].x;
-        rrects[cls].y += rectList[i].y;
-        rrects[cls].width += rectList[i].width;
-        rrects[cls].height += rectList[i].height;
+        rrects[cls].center.x += rectList[i].center.x;
+        rrects[cls].center.y += rectList[i].center.y;
+        rrects[cls].size.width += rectList[i].size.width;
+        rrects[cls].size.height += rectList[i].size.height;
+        rrects[cls].angle += rectList[i].angle;
         foundWeights[cls] = max(foundWeights[cls], weights[i]);
         numInClass[cls]++;
     }
@@ -3262,12 +3289,13 @@ void FisheyeHOGDescriptor::readALTModel(std::string modelfile)
     for( i = 0; i < nclasses; i++ )
     {
         // find the average of all ROI in the cluster
-        cv::Rect_<double> r = rrects[i];
+        cv::RotatedRect r = rrects[i];
         double s = 1.0/numInClass[i];
-        rrects[i] = cv::Rect_<double>(cv::saturate_cast<double>(r.x*s),
-            cv::saturate_cast<double>(r.y*s),
-            cv::saturate_cast<double>(r.width*s),
-            cv::saturate_cast<double>(r.height*s));
+        rrects[i] = cv::RotatedRect(Point2f(cv::saturate_cast<float>(r.center.x*s),
+            cv::saturate_cast<float>(r.center.y*s)),
+            Size(cv::saturate_cast<int>(cvRound(r.size.width*s)),
+            cv::saturate_cast<int>(cvRound(r.size.height*s))), 
+            cv::saturate_cast<float>(r.angle*s));
     }
 
     rectList.clear();
@@ -3275,7 +3303,9 @@ void FisheyeHOGDescriptor::readALTModel(std::string modelfile)
 
     for( i = 0; i < nclasses; i++ )
     {
-        cv::Rect r1 = rrects[i];
+        cv::RotatedRect r1 = rrects[i];
+        cv::Point2f v1[4];
+        r1.points(v1);
         int n1 = numInClass[i];
         double w1 = foundWeights[i];
         if( n1 <= groupThreshold )
@@ -3288,15 +3318,17 @@ void FisheyeHOGDescriptor::readALTModel(std::string modelfile)
             if( j == i || n2 <= groupThreshold )
                 continue;
 
-            cv::Rect r2 = rrects[j];
+            cv::RotatedRect r2 = rrects[j];
+            cv::Point2f v2[4];
+            r2.points(v2);
 
-            int dx = cv::saturate_cast<int>( r2.width * eps );
-            int dy = cv::saturate_cast<int>( r2.height * eps );
+            int dx = cv::saturate_cast<int>( r2.size.width * eps );
+            int dy = cv::saturate_cast<int>( r2.size.height * eps );
 
-            if( r1.x >= r2.x - dx &&
-                r1.y >= r2.y - dy &&
-                r1.x + r1.width <= r2.x + r2.width + dx &&
-                r1.y + r1.height <= r2.y + r2.height + dy &&
+            if( v1[1].x >= v2[1].x - dx &&
+                v1[1].y >= v2[2].y - dy &&
+                v1[2].x <= v2[2].x + dx &&
+                v1[2].y <= v2[2].y + dy &&
                 (n2 > std::max(3, n1) || n1 < 3) )
                 break;
         }
@@ -3308,5 +3340,4 @@ void FisheyeHOGDescriptor::readALTModel(std::string modelfile)
         }
     }
 }
-*/
 }

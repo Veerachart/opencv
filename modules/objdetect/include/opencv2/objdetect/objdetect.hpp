@@ -351,6 +351,20 @@ CV_EXPORTS void groupRectangles(vector<Rect>& rectList, vector<int>& rejectLevel
                                 vector<double>& levelWeights, int groupThreshold, double eps=0.2);
 CV_EXPORTS void groupRectangles_meanshift(vector<Rect>& rectList, vector<double>& foundWeights, vector<double>& foundScales,
                                           double detectThreshold = 0.0, Size winDetSize = Size(64, 128));
+                                          
+
+class CV_EXPORTS SimilarRotatedRects
+{
+public:
+    SimilarRotatedRects(double _eps) : eps(_eps) {}
+    inline bool operator()(const RotatedRect& r1, const RotatedRect& r2) const
+    {
+        double delta = eps*(std::min(r1.size.width, r2.size.width) + std::min(r1.size.height, r2.size.height))*0.5;
+        return std::abs(r1.center.x - r2.center.x) <= delta &&
+            std::abs(r1.angle - r2.angle) <= 4.;
+    }
+    double eps;
+};
 
 
 class CV_EXPORTS FeatureEvaluator
@@ -659,7 +673,7 @@ public:
         blockSize(16,16), blockStride(8,8), cellSize(8,8), nbins(9), derivAperture(1), 
         winSigma(-1), histogramNormType(FisheyeHOGDescriptor::L2Hys), 
         L2HysThreshold(0.2), gammaCorrection(true),
-        nlevels(FisheyeHOGDescriptor::DEFAULT_NLEVELS), imgBorder(12)
+        nlevels(FisheyeHOGDescriptor::DEFAULT_NLEVELS), imgBorder(12), detectStride(Size(4,2))
     {
         initInternal();
     }
@@ -668,11 +682,12 @@ public:
                   Size _cellSize, int _nbins, int _derivAperture=1, double _winSigma=-1,
                   int _histogramNormType=FisheyeHOGDescriptor::L2Hys,
                   double _L2HysThreshold=0.2, bool _gammaCorrection=false,
-                  int _nlevels=FisheyeHOGDescriptor::DEFAULT_NLEVELS, int _border=12)
+                  int _nlevels=FisheyeHOGDescriptor::DEFAULT_NLEVELS, int _border=12, 
+                  Size _detectStride=Size(4,2))
     : winSize(_winSize), blockSize(_blockSize), blockStride(_blockStride), cellSize(_cellSize),
     nbins(_nbins), derivAperture(_derivAperture), winSigma(_winSigma),
     histogramNormType(_histogramNormType), L2HysThreshold(_L2HysThreshold),
-    gammaCorrection(_gammaCorrection), nlevels(_nlevels), imgBorder(_border)
+    gammaCorrection(_gammaCorrection), nlevels(_nlevels), imgBorder(_border), detectStride(_detectStride)
     {
         initInternal();
     }
@@ -687,7 +702,9 @@ public:
         d.copyTo(*this);
     }
 
-    virtual ~FisheyeHOGDescriptor() {}
+    virtual ~FisheyeHOGDescriptor() {
+        delete[] tables;
+    }
     
     void initInternal();
 
@@ -715,12 +732,12 @@ public:
     //with found weights output
     CV_WRAP virtual void detect(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
                         CV_OUT vector<double>& weights, CV_OUT vector<float>& descriptors,
-                        double hitThreshold=0, Size winStride=Size(4,4),
+                        double hitThreshold=0, Size winStride=Size(4,2),
                         Size padding=Size(),
                         const vector<Point>& searchLocations=vector<Point>()) const;
     //without found weights output
     virtual void detect(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
-                        CV_OUT vector<float>& descriptors, double hitThreshold=0, Size winStride=Size(4,4),
+                        CV_OUT vector<float>& descriptors, double hitThreshold=0, Size winStride=Size(4,2),
                         Size padding=Size(),
                         const vector<Point>& searchLocations=vector<Point>()) const;
     //with result weights output
@@ -759,8 +776,9 @@ public:
     CV_PROP bool gammaCorrection;
     CV_PROP vector<float> svmDetector;
     CV_PROP int nlevels;
-	AngleLookUp tables[90];         // Lookup Table used for detection at various angles
+	AngleLookUp * tables;           // Lookup Table used for detection at various angles
 	CV_PROP int imgBorder;          // Safety border (usually black for fisheye camera)
+	CV_PROP Size detectStride;      // For creating point sets
 
 
    /*// evaluate specified ROI and return confidence value for each location
@@ -778,7 +796,7 @@ public:
 
    // read/parse Dalal's alt model file
    void readALTModel(std::string modelfile);
-   //void groupRectangles(vector<cv::Rect>& rectList, vector<double>& weights, int groupThreshold, double eps) const;
+   void groupRectangles(vector<cv::RotatedRect>& rectList, vector<double>& weights, int groupThreshold, double eps) const;
 };
 
 }
