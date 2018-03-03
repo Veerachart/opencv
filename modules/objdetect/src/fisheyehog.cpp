@@ -102,7 +102,7 @@ void FisheyeHOGDescriptor::initInternal(void)
 {
     nblocks = Size((winSize.width - blockSize.width)/blockStride.width + 1,
                    (winSize.height - blockSize.height)/blockStride.height + 1);
-    setAngleMatrix(Size(1000,1000));
+    setAngleMatrix(Size(2000,2000));
     tables = new AngleLookUp [360/detectStride.height];
     AngleLookUp* table = 0;
     for (int ang = 0; ang < 360/detectStride.height; ang++) {
@@ -1169,7 +1169,8 @@ RotatedRect FisheyeHOGCache::getWindow(Size imageSize, Size winStride, int idx) 
     int nwindowsAngle = 360/angStep;
     int rad = idx/nwindowsAngle;
     int angle = idx - nwindowsAngle*rad;
-    Point center = descriptor->tables[angle].origins[(radMax-rad + winSize.height/cacheStride.width/2)*nblocks.width + 2];
+    Point center = descriptor->tables[angle].origins[(radMax-rad + winSize.height/cacheStride.width/2)*nblocks.width + (nblocks.width-3)/2];
+    //printf("(%d, %d), %.2f\n", center.x, center.y, angle*angStep);
     //printf("%.6f\n", (float)imageSize.height/2-9-winSize.height/2-rad*winStride.width);
     return RotatedRect(Point2f(center.x + imageSize.width/2, center.y + imageSize.height/2), 
                        winSize, angle*angStep);
@@ -1210,7 +1211,7 @@ void FisheyeHOGDescriptor::compute(const Mat& img, vector<float>& descriptors,
         s_angle = sin(ang);
         //Point center = Point(scale*ROIs[i].center);
 
-        FisheyeHOGCache cache(this, smallerImg, Size(0,0), Size(0,0), false, Size(0,0));
+        FisheyeHOGCache cache(this, smallerImg, Size(0,0), Size(0,0), false, Size(4,2));
         int blockHistogramSize = cache.blockHistogramSize;
         vector<Point> imgOffsets;
         imgOffsets.resize(cache.nblocks.area());
@@ -1460,7 +1461,7 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
         else
         {
             rect = cache.getWindow(paddedImgSize, winStride, (int)i);
-            pt0 = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width)*nblocks.width + 6] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+            pt0 = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width)*nblocks.width + (nblocks.width-1)] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
             // TODO change this
             //CV_Assert(pt0.x % cacheStride.width == 0 && pt0.y % cacheStride.height == 0);
         }
@@ -1479,7 +1480,7 @@ void FisheyeHOGDescriptor::detect(const Mat& img,
         {
             jblock = j/nblocks.height;
             iblock = j - jblock*nblocks.height;
-            Point pt = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width - iblock*blockStride.height/cacheStride.width)*nblocks.width + 6-jblock] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+            Point pt = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width - iblock*blockStride.height/cacheStride.width)*nblocks.width + (nblocks.width-1)-jblock] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
             //printf("\n%d, ", j);
 
             //t2 = clock();
@@ -1541,6 +1542,7 @@ void FisheyeHOGDescriptor::detectArea(const Mat& img, const vector<RotatedRect>&
 {
     //clock_t t0, t1, t2, t3;
     //float tsum1, tsum2, tsum3, tsum4;
+    //int64 t1 = getTickCount();
     hits.clear();
     weights.clear();
     descriptors.clear();
@@ -1567,12 +1569,12 @@ void FisheyeHOGDescriptor::detectArea(const Mat& img, const vector<RotatedRect>&
     Point2f img_center(float(img.cols/2), float(img.rows/2));
     float r1, r2, theta1, theta2;
     vector<Point2f> limits;
-    //int64 total;
+    //int64 total = 0;
     //int64 start = getTickCount();
-    /*for (int a = 0; a < areas.size(); a++) {
+    for (int a = 0; a < areas.size(); a++) {
         area = areas[a];
         area.points(vertices);
-        r1 = norm(area.center-img_center) - area.size.height/2 + winSize.height/2;
+        r1 = norm(area.center-img_center) - area.size.height/2 - winSize.height/2;
         r2 = norm(vertices[1]-img_center) - winSize.height/2;
         // r1 must be less than r2
         CV_Assert(r1 < r2);
@@ -1587,15 +1589,16 @@ void FisheyeHOGDescriptor::detectArea(const Mat& img, const vector<RotatedRect>&
 
         limits.push_back(Point2f(r1, theta1));
         limits.push_back(Point2f(r2, theta2));
-        printf("%6f, %.6f, %.6f, %.6f\n", r1, theta1, r2, theta2);
     }
-    total += getTickCount()-start;*/
+    //total += getTickCount()-start;
 
     //t1 = clock();
     //printf("%.6f ", ((float)t1-t0)/CLOCKS_PER_SEC);
     FisheyeHOGCache cache(this, img, padding, padding, nwindows == 0, cacheStride);
+    //int64 t = getTickCount() - t1;
     //t2 = clock();
     //printf("%f s for cache\n", ((float)t)/CLOCKS_PER_SEC);
+    //printf("%lf ms until cache\n", ((double) t)/getTickFrequency() * 1000);
     /*for (int rad = 0; rad <= cache.radMax; rad++) {
         Point p = tables[0].origins[(cache.radMax-rad + winSize.height/cacheStride.height)*nblocks.width + 6] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
         printf("(%d,%d)\n", p.x, p.y);
@@ -1629,56 +1632,63 @@ void FisheyeHOGDescriptor::detectArea(const Mat& img, const vector<RotatedRect>&
         ang = (int)i%(360/winStride.height);
         rad = (int)i/(360/winStride.height);
 
-        /*start = getTickCount();
+        //int64 start = getTickCount();
         float r_px = norm(tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width/2)*nblocks.width + 2]);
         float theta_px = ang*float(detectStride.height);
 
-        bool isInAreas = false;
+        // First screening
+        bool isOutOfBound = true;
         for (int check = 0; check < limits.size(); check += 2) {
             lim1 = limits[check];
             lim2 = limits[check+1];
             if (r_px >= lim1.x && r_px <= lim2.x) {     // r1 <= r_px <= r2
                 if (lim1.y > lim2.y) {                  // theta1 > theta2 : crossing the 0-degree line
                     if (theta_px > lim1.y || theta_px < lim2.y) {
-                        isInAreas = true;
+                    	isOutOfBound = false;
                         break;
                     }
                 }
                 else {                                  // normal
                     if (theta_px > lim1.y && theta_px < lim2.y) {
-                        isInAreas = true;
+                    	isOutOfBound = false;
                         break;
                     }
                 }
             }
         }
-        if (!isInAreas)          // Not in the area, skip the detection
+        //total += getTickCount()-start;
+        if (isOutOfBound)          // Not in the area, skip the detection
             continue;
-        total += getTickCount()-start;*/
         //printf("%.6f, %.6f", r_px, theta_px);
         //printf("%d:", ang);
         rect = cache.getWindow(paddedImgSize, winStride, (int)i);
-        //printf("\t%.6f, %.6f", norm(rect.center-img_center), rect.angle);
-        rect.points(vertices);
-        bool isInAreas = false;
         //start = getTickCount();
-        for (int check = 0; check < areas.size(); check++) {
-        	int count = 0;
-        	for (int v = 0; v < 4; v++) {
-        		if (isInRotatedBox(vertices[v], areas[check])) {
-        			count++;
-        		}
-        	}
-        	if (count >= 3) {
-        		// At least 3 vertices in the area
-        		isInAreas = true;
-        		break;
-        	}
-        }
+        vector<Point2f> vers;
+		vector< Point2f> hull;
+		bool isInAreas = false;
+		for (int check = 0; check < areas.size(); check++) {
+			int ret = rotatedRectangleIntersection(rect,areas[check],vers);
+			float area1 = winSize.area();
+			if (ret == INTERSECT_NONE) {
+			}
+			else if (ret == INTERSECT_FULL) {
+				isInAreas = true;
+				break;
+			}
+			else {
+				convexHull(vers, hull);
+				if (contourArea(hull)/area1 > 0.9) {
+					isInAreas = true;
+					break;
+				}
+			}
+		}
         //total += getTickCount()-start;
+
         if (!isInAreas)
         	continue;
-        pt0 = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width)*nblocks.width + 6] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+
+        pt0 = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width)*nblocks.width + (nblocks.width-1)] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
         // TODO change this
         //CV_Assert(pt0.x % cacheStride.width == 0 && pt0.y % cacheStride.height == 0);
         double s = rho;
@@ -1696,7 +1706,7 @@ void FisheyeHOGDescriptor::detectArea(const Mat& img, const vector<RotatedRect>&
         {
             jblock = j/nblocks.height;
             iblock = j - jblock*nblocks.height;
-            Point pt = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width - iblock*blockStride.height/cacheStride.width)*nblocks.width + 6-jblock] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
+            Point pt = tables[ang].origins[(cache.radMax-rad + winSize.height/cacheStride.width - iblock*blockStride.height/cacheStride.width)*nblocks.width + (nblocks.width-1)-jblock] + Point(paddedImgSize.width/2, paddedImgSize.height/2);
             //printf("\n%d, ", j);
 
             //t2 = clock();
@@ -1739,7 +1749,7 @@ void FisheyeHOGDescriptor::detectArea(const Mat& img, const vector<RotatedRect>&
             printf("%d ", (int) i);*/
         //printf("\n");
     }
-    //printf("Time: %lf\n", double(total)/getTickFrequency());
+    //printf("Time: %lf ms\n", double(total)/getTickFrequency()*1000.);
     //printf("\n");
     //cache.printGetBlockTimes(nwindows);
     //t4 = clock();
@@ -1802,7 +1812,7 @@ public:
             {
                 vec->push_back(RotatedRect( Point2f(locations[j].center.x*scale, 
                                             locations[j].center.y*scale),
-                               Size(scaledWinSize.width, scaledWinSize.height), 
+                               scaledWinSize,
                                locations[j].angle));
                 if (scales)
                 {
@@ -1904,6 +1914,165 @@ void FisheyeHOGDescriptor::detectMultiScale(const Mat& img, vector<RotatedRect>&
     detectMultiScale(img, foundLocations, foundWeights, foundDescriptors, hitThreshold, 
                      winStride, padding, scale0, finalThreshold, useMeanshiftGrouping);
 }
+
+class FisheyeHOGAreaInvoker : public ParallelLoopBody
+{
+public:
+    FisheyeHOGAreaInvoker( const FisheyeHOGDescriptor* _hog, const Mat& _img, const vector<RotatedRect> &_areas,
+                double _hitThreshold, Size _winStride, Size _padding,
+                const double* _levelScale, std::vector<RotatedRect> * _vec, Mutex* _mtx,
+                std::vector<double>* _weights=0, std::vector<double>* _scales=0, std::vector<float>* _descriptors=0 )
+    {
+        hog = _hog;
+        img = _img;
+        areas = _areas;
+        hitThreshold = _hitThreshold;
+        winStride = _winStride;
+        padding = _padding;
+        levelScale = _levelScale;
+        vec = _vec;
+        weights = _weights;
+        scales = _scales;
+        descriptors = _descriptors;
+        mtx = _mtx;
+    }
+
+    void operator()( const Range& range ) const
+    {
+        int i, i1 = range.start, i2 = range.end;
+        //double minScale = i1 > 0 ? levelScale[i1] : i2 > 1 ? levelScale[i1+1] : std::max(img.cols, img.rows);
+        double minScale = levelScale[i1];		// MAY NEED TO BE REVISED TODO
+        Size maxSz(cvCeil(img.cols/minScale), cvCeil(img.rows/minScale));
+        Mat smallerImgBuf(maxSz, img.type());
+        vector<RotatedRect> locations;
+        vector<double> hitsWeights;
+        vector<float> hitsDescriptors;
+
+        for( i = i1; i < i2; i++ )
+        {
+            double scale = levelScale[i];
+            vector<RotatedRect> scaledAreas;
+            Size sz(cvRound(img.cols/scale), cvRound(img.rows/scale));
+            Mat smallerImg(sz, img.type(), smallerImgBuf.data);
+            if( sz == img.size() )
+                smallerImg = Mat(sz, img.type(), img.data, img.step);
+            else
+                resize(img, smallerImg, sz);
+            for (int a = 0; a < areas.size(); a++)
+            	scaledAreas.push_back(RotatedRect((1./scale)*areas[a].center, Size2f(areas[a].size.width/scale, areas[a].size.height/scale), areas[a].angle));
+            hog->detectArea(smallerImg, scaledAreas, locations, hitsWeights, hitsDescriptors, hitThreshold, winStride, padding);
+            Size scaledWinSize = Size(cvRound(hog->winSize.width*scale), cvRound(hog->winSize.height*scale));
+
+            mtx->lock();
+            for( size_t j = 0; j < locations.size(); j++ )
+            {
+                vec->push_back(RotatedRect( Point2f(locations[j].center.x*scale,
+                                            locations[j].center.y*scale),
+                               scaledWinSize,
+                               locations[j].angle));
+                if (scales)
+                {
+                    scales->push_back(scale);
+                }
+            }
+            mtx->unlock();
+
+            if (weights && (!hitsWeights.empty()))
+            {
+                mtx->lock();
+                for (size_t j = 0; j < locations.size(); j++)
+                {
+                    weights->push_back(hitsWeights[j]);
+                }
+                mtx->unlock();
+            }
+
+            if (descriptors && (!hitsDescriptors.empty()))
+            {
+                mtx->lock();
+                for (size_t j = 0; j < locations.size(); j++)
+                {
+                    descriptors->push_back(hitsDescriptors[j]);
+                }
+                mtx->unlock();
+            }
+        }
+    }
+
+    const FisheyeHOGDescriptor* hog;
+    Mat img;
+    vector<RotatedRect> areas;
+    double hitThreshold;
+    Size winStride;
+    Size padding;
+    const double* levelScale;
+    std::vector<RotatedRect>* vec;
+    std::vector<double>* weights;
+    std::vector<double>* scales;
+    std::vector<float>* descriptors;
+    Mutex* mtx;
+};
+
+void FisheyeHOGDescriptor::detectAreaMultiScale(
+    const Mat& img, const vector<RotatedRect> &areas, vector<RotatedRect>& foundLocations, vector<double>& foundWeights,
+    vector <float>& foundDescriptors, Size sz_min, Size sz_max, double hitThreshold, Size winStride, Size padding,
+    double scale0, double finalThreshold, bool useMeanshiftGrouping) const
+{
+    CV_Assert((double(sz_min.width)/double(sz_min.width) == double(winSize.width)/double(winSize.width)) && (double(sz_max.width)/double(sz_max.width) == double(winSize.width)/double(winSize.width)) );
+	double scale = double(sz_min.width)/double(winSize.width);
+    int levels = 0;
+
+    vector<double> levelScale;
+    for( levels = 0; levels < nlevels; levels++ )
+    {
+        levelScale.push_back(scale);
+        if( cvRound(img.cols/(2*scale) - imgBorder) < winSize.width ||
+            cvRound(img.rows/(2*scale) - imgBorder) < winSize.height ||
+            scale0 <= 1 ||
+            scale*winSize.width > sz_max.width)
+            break;
+        scale *= scale0;
+    }
+    levels = std::max(levels, 1);
+    levelScale.resize(levels);
+
+    std::vector<RotatedRect> allCandidates;
+    std::vector<double> tempScales;
+    std::vector<double> tempWeights;
+    std::vector<double> foundScales;
+    std::vector<float>  tempDescriptors;
+    Mutex mtx;
+
+    parallel_for_(Range(0, (int)levelScale.size()),
+                 FisheyeHOGAreaInvoker(this, img, areas, hitThreshold, winStride, padding, &levelScale[0], &allCandidates, &mtx, &tempWeights, &tempScales));
+
+    std::copy(tempScales.begin(), tempScales.end(), back_inserter(foundScales));
+    foundLocations.clear();
+    std::copy(allCandidates.begin(), allCandidates.end(), back_inserter(foundLocations));
+    foundWeights.clear();
+    std::copy(tempWeights.begin(), tempWeights.end(), back_inserter(foundWeights));
+
+    /*if ( useMeanshiftGrouping )
+    {
+        groupRectangles_meanshift(foundLocations, foundWeights, foundScales, finalThreshold, winSize);
+    }
+    else
+    {
+        groupRectangles(foundLocations, foundWeights, (int)finalThreshold, 0.2);
+    }*/
+    groupRectangles(foundLocations, foundWeights, (int)finalThreshold, 0.2);
+}
+
+void FisheyeHOGDescriptor::detectAreaMultiScale(const Mat& img, const vector<RotatedRect> &areas, vector<RotatedRect>& foundLocations,
+                                            vector <float>& foundDescriptors,
+                                            Size sz_min, Size sz_max, double hitThreshold, Size winStride, Size padding,
+                                            double scale0, double finalThreshold, bool useMeanshiftGrouping) const
+{
+    vector<double> foundWeights;
+    detectAreaMultiScale(img, areas, foundLocations, foundWeights, foundDescriptors, sz_min, sz_max, hitThreshold,
+                     winStride, padding, scale0, finalThreshold, useMeanshiftGrouping);
+}
+
 
 /*void FisheyeHOGDescriptor:: detectFromCeiling(const Mat& img, vector<RotatedRect>& foundLocations, vector<double> foundWeights, double hitThreshold, Size winStride, Size padding, double finalThreshold, bool useMeanshiftGrouping) const
 {

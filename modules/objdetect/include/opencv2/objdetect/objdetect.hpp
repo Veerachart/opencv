@@ -703,7 +703,7 @@ public:
     }
 
     virtual ~FisheyeHOGDescriptor() {
-        delete[] tables;
+        //delete[] tables;
     }
     
     void initInternal();
@@ -757,14 +757,28 @@ public:
                                   CV_OUT vector<double>& foundWeights, 
                                   CV_OUT vector <float>& foundDescriptors, 
                                   double hitThreshold=0,
-                                  Size winStride=Size(4,4), Size padding=Size(), double scale=1.05,
+                                  Size winStride=Size(4,2), Size padding=Size(), double scale=1.05,
                                   double finalThreshold=2.0, bool useMeanshiftGrouping = false) const;
     //without found weights output
     virtual void detectMultiScale(const Mat& img, CV_OUT vector<RotatedRect>& foundLocations,
                                   CV_OUT vector <float>& foundDescriptors, 
-                                  double hitThreshold=0, Size winStride=Size(4,4),
+                                  double hitThreshold=0, Size winStride=Size(4,2),
                                   Size padding=Size(), double scale=1.05,
                                   double finalThreshold=2.0, bool useMeanshiftGrouping = false) const;
+    //with result weights output
+	CV_WRAP virtual void detectAreaMultiScale(const Mat& img, const vector<RotatedRect> &areas,
+								  CV_OUT vector<RotatedRect>& foundLocations,
+								  CV_OUT vector<double>& foundWeights,
+								  CV_OUT vector <float>& foundDescriptors,
+								  Size sz_min, Size sz_max, double hitThreshold=0,
+								  Size winStride=Size(4,2), Size padding=Size(), double scale=1.05,
+								  double finalThreshold=2.0, bool useMeanshiftGrouping = false) const;
+	//without found weights output
+	virtual void detectAreaMultiScale(const Mat& img, const vector<RotatedRect> &areas, CV_OUT vector<RotatedRect>& foundLocations,
+								  CV_OUT vector <float>& foundDescriptors,
+								  Size sz_min, Size sz_max, double hitThreshold=0, Size winStride=Size(4,2),
+								  Size padding=Size(), double scale=1.05,
+								  double finalThreshold=2.0, bool useMeanshiftGrouping = false) const;
 
     CV_WRAP virtual void computeGradient(const Mat& img, CV_OUT Mat& grad, CV_OUT Mat& angleOfs,
                                  Size paddingTL=Size(), Size paddingBR=Size()) const;
