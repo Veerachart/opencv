@@ -1082,6 +1082,15 @@ enum
     COLOR_COLORCVT_MAX  = 135
 };
 
+/** types of intersection between rectangles
+@ingroup imgproc_shape
+*/
+enum RectanglesIntersectTypes {
+    INTERSECT_NONE = 0, //!< No intersection
+    INTERSECT_PARTIAL  = 1, //!< There is a partial intersection
+    INTERSECT_FULL  = 2 //!< One of the rectangle is fully enclosed in the other
+};
+
 
 //! converts image from one color space to another
 CV_EXPORTS_W void cvtColor( InputArray src, OutputArray dst, int code, int dstCn=0 );
@@ -1197,6 +1206,20 @@ CV_EXPORTS_W void fitLine( InputArray points, OutputArray line, int distType,
                            double param, double reps, double aeps );
 //! checks if the point is inside the contour. Optionally computes the signed distance from the point to the contour boundary
 CV_EXPORTS_W double pointPolygonTest( InputArray contour, Point2f pt, bool measureDist );
+
+/** @brief Finds out if there is any intersection between two rotated rectangles.
+If there is then the vertices of the intersecting region are returned as well.
+Below are some examples of intersection configurations. The hatched pattern indicates the
+intersecting region and the red vertices are returned by the function.
+![intersection examples](pics/intersection.png)
+@param rect1 First rectangle
+@param rect2 Second rectangle
+@param intersectingRegion The output array of the vertices of the intersecting region. It returns
+at most 8 vertices. Stored as std::vector\<cv::Point2f\> or cv::Mat as Mx1 of type CV_32FC2.
+@returns One of #RectanglesIntersectTypes
+ */
+CV_EXPORTS_W int rotatedRectangleIntersection( const RotatedRect& rect1, const RotatedRect& rect2, OutputArray intersectingRegion  );
+
 
 
 class CV_EXPORTS_W Subdiv2D
