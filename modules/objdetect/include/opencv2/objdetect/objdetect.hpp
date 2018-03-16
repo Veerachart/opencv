@@ -822,6 +822,7 @@ public:
    // read/parse Dalal's alt model file
    void readALTModel(std::string modelfile);
    void groupRectangles(vector<cv::RotatedRect>& rectList, vector<double>& weights, int groupThreshold, double eps) const;
+   void groupRectanglesNMS(vector<cv::RotatedRect>& rectList, vector<double>& weights, int groupThreshold, double overlapThreshold) const;
 };
 
 }

@@ -102,7 +102,7 @@ void FisheyeHOGDescriptor::initInternal(void)
 {
     nblocks = Size((winSize.width - blockSize.width)/blockStride.width + 1,
                    (winSize.height - blockSize.height)/blockStride.height + 1);
-    setAngleMatrix(Size(2000,2000));
+    setAngleMatrix(Size(6000,6000));
     tables = new AngleLookUp [360/detectStride.height];
     AngleLookUp* table = 0;
     for (int ang = 0; ang < 360/detectStride.height; ang++) {
@@ -272,7 +272,7 @@ void FisheyeHOGDescriptor::computeGradient(const Mat& img, Mat& grad, Mat& qangl
     qangle.create(gradsize, CV_8UC2); // [0..nbins-1] - quantized gradient orientation
     Size anglePad(0,0);
     if (gradsize.width < imgSize.width)
-        anglePad = Size((imgSize.width-gradsize.width)/2, (imgSize.width-gradsize.width)/2);
+        anglePad = Size((imgSize.width-gradsize.width)/2, (imgSize.height-gradsize.height)/2);
     Size wholeSize;
     Point roiofs;
     img.locateROI(wholeSize, roiofs);
@@ -1902,7 +1902,8 @@ void FisheyeHOGDescriptor::detectMultiScale(
     {
         groupRectangles(foundLocations, foundWeights, (int)finalThreshold, 0.2);
     }*/
-    groupRectangles(foundLocations, foundWeights, (int)finalThreshold, 0.2);
+    //groupRectangles(foundLocations, foundWeights, (int)finalThreshold, 0.2);
+    groupRectanglesNMS(foundLocations, foundWeights, (int)finalThreshold, 0.4);
 }
 
 void FisheyeHOGDescriptor::detectMultiScale(const Mat& img, vector<RotatedRect>& foundLocations,
@@ -2060,7 +2061,8 @@ void FisheyeHOGDescriptor::detectAreaMultiScale(
     {
         groupRectangles(foundLocations, foundWeights, (int)finalThreshold, 0.2);
     }*/
-    groupRectangles(foundLocations, foundWeights, (int)finalThreshold, 0.2);
+    //groupRectangles(foundLocations, foundWeights, (int)finalThreshold, 0.2);
+    groupRectanglesNMS(foundLocations, foundWeights, (int)finalThreshold, 0.4);
 }
 
 void FisheyeHOGDescriptor::detectAreaMultiScale(const Mat& img, const vector<RotatedRect> &areas, vector<RotatedRect>& foundLocations,
@@ -3735,5 +3737,79 @@ void FisheyeHOGDescriptor::groupRectangles(vector<cv::RotatedRect>& rectList, ve
             weights.push_back(w1);
         }
     }
+}
+
+void FisheyeHOGDescriptor::groupRectanglesNMS(vector<cv::RotatedRect>& rectList, vector<double>& weights, int groupThreshold, double overlapThreshold) const
+{
+	if( groupThreshold <= 0 || overlapThreshold <= 0 || rectList.empty() )
+	{
+		return;
+	}
+
+	CV_Assert(rectList.size() == weights.size());
+
+	// Sort the bounding boxes by the detection score
+	std::multimap<double, size_t> idxs;
+	for (size_t i = 0; i < rectList.size(); ++i)
+	{
+		idxs.insert(std::pair<double, size_t>(weights[i], i));
+	}
+
+	vector<RotatedRect> outRects;
+	vector<double> outWeights;
+
+	// keep looping while some indexes still remain in the indexes list
+	while (idxs.size() > 0)
+	{
+		// grab the last rectangle
+		std::multimap<double, size_t>::iterator lastElem = --idxs.end();
+		const cv::RotatedRect& rect1 = rectList[lastElem->second];
+
+		int neigborsCount = 0;
+		float scoresSum = lastElem->first;
+
+		idxs.erase(lastElem);
+
+		vector<Point2f> vers, hull;
+
+		for (std::multimap<double, size_t>::iterator pos = idxs.begin(); pos != idxs.end(); )
+		{
+			// grab the current rectangle
+			const cv::RotatedRect& rect2 = rectList[pos->second];
+
+			int ret = rotatedRectangleIntersection(rect1,rect2,vers);
+			float intArea;
+			if (ret != INTERSECT_NONE) {
+				convexHull(vers, hull);
+				intArea = contourArea(hull);
+			}
+			else
+				intArea = 0.;
+			float area = min(rect1.size.area(), rect2.size.area());
+			float overlap = intArea / area;
+
+			// if there is sufficient overlap, suppress the current bounding box
+			if (overlap > overlapThreshold)
+			{
+				scoresSum += pos->first;
+				std::multimap<double, size_t>::iterator save = pos;
+				++save;
+				idxs.erase(pos);
+				pos = save;
+				++neigborsCount;
+			}
+			else
+			{
+				++pos;
+			}
+		}
+		if (neigborsCount >= groupThreshold)
+		{
+			outRects.push_back(rect1);
+			outWeights.push_back(scoresSum);
+		}
+	}
+	rectList = outRects;
+	weights = outWeights;
 }
 }
