@@ -781,7 +781,7 @@ public:
 								  double finalThreshold=2.0, bool useMeanshiftGrouping = false) const;
 
     CV_WRAP virtual void computeGradient(const Mat& img, CV_OUT Mat& grad, CV_OUT Mat& angleOfs,
-                                 Size paddingTL=Size(), Size paddingBR=Size()) const;
+                                 Size paddingTL=Size(), Size paddingBR=Size(), const vector<RotatedRect> &ROIs=vector<RotatedRect>()) const;
 
     CV_WRAP static vector<float> getDefaultPeopleDetector();
     CV_WRAP static vector<float> getDaimlerPeopleDetector();

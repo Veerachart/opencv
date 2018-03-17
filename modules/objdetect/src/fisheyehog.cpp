@@ -262,20 +262,35 @@ void FisheyeHOGDescriptor::copyTo(FisheyeHOGDescriptor& c) const
 }
 
 void FisheyeHOGDescriptor::computeGradient(const Mat& img, Mat& grad, Mat& qangle,
-                                           Size paddingTL, Size paddingBR) const
+                                           Size paddingTL, Size paddingBR, const vector<RotatedRect> &ROIs) const
 {
     CV_Assert( img.type() == CV_8U || img.type() == CV_8UC3 );
 
     Size gradsize(img.cols + paddingTL.width + paddingBR.width,
                   img.rows + paddingTL.height + paddingBR.height);
-    grad.create(gradsize, CV_32FC2);  // <magnitude*(1-alpha), magnitude*alpha>
-    qangle.create(gradsize, CV_8UC2); // [0..nbins-1] - quantized gradient orientation
+    //grad.create(gradsize, CV_32FC2);  // <magnitude*(1-alpha), magnitude*alpha>
+    grad = Mat::zeros(gradsize, CV_32FC2);
+    //qangle.create(gradsize, CV_8UC2); // [0..nbins-1] - quantized gradient orientation
+    qangle = Mat::zeros(gradsize, CV_8UC2);
     Size anglePad(0,0);
     if (gradsize.width < imgSize.width)
         anglePad = Size((imgSize.width-gradsize.width)/2, (imgSize.height-gradsize.height)/2);
     Size wholeSize;
     Point roiofs;
     img.locateROI(wholeSize, roiofs);
+
+    // limits for ROIs
+    vector<int> xlims, ylims;		// [xmin1, xmax1, xmin2, xmax2, ...], [ymin1, ymax1, ...]
+    for (int roi = 0; roi < ROIs.size(); roi++) {
+    	Rect r = ROIs[roi].boundingRect();
+    	Point tl = r.tl();
+    	Point br = r.br();
+    	// 20 px margin around (just in case)
+    	xlims.push_back(tl.x - 20);
+    	ylims.push_back(tl.y - 20);
+    	xlims.push_back(br.x + 20);
+    	ylims.push_back(br.y + 20);
+    }
 
     int i, x, y;
     int cn = img.channels();
@@ -338,6 +353,15 @@ void FisheyeHOGDescriptor::computeGradient(const Mat& img, Mat& grad, Mat& qangl
 #endif
     for( y = 0; y < gradsize.height; y++ )
     {
+    	if (xlims.size() && ylims.size()) {						// Some ROIs exist
+    		int roi;
+    		for (roi = 0; roi < ylims.size(); roi += 2) {
+    			if (y >= ylims[roi] && y <= ylims[roi+1])		// within the ROI: check only rows here
+    				break;
+    		}
+    		if (roi == ylims.size())			// Check until the end and not in any ROI --> skip
+    			continue;
+    	}
 #ifdef HAVE_IPP
         const float* imgPtr  = (float*)(lutimg.data + lutimg.step*ymap[y]);
         const float* prevPtr = (float*)(lutimg.data + lutimg.step*ymap[y-1]);
@@ -355,6 +379,15 @@ void FisheyeHOGDescriptor::computeGradient(const Mat& img, Mat& grad, Mat& qangl
         {
             for( x = 0; x < width; x++ )
             {
+            	if (xlims.size() && ylims.size()) {						// Some ROIs exist
+					int roi;
+					for (roi = 0; roi < xlims.size(); roi += 2) {
+						if (x >= xlims[roi] && x <= xlims[roi+1])		// within the ROI
+							break;
+					}
+					if (roi == xlims.size())			// Check until the end and not in any ROI --> skip
+						continue;
+				}
                 int x1 = xmap[x];
 #ifdef HAVE_IPP
                 dbuf[x] = (float)(imgPtr[xmap[x+1]] - imgPtr[xmap[x-1]]);
@@ -369,6 +402,15 @@ void FisheyeHOGDescriptor::computeGradient(const Mat& img, Mat& grad, Mat& qangl
         {
             for( x = 0; x < width; x++ )
             {
+            	if (xlims.size() && ylims.size()) {						// Some ROIs exist
+					int roi;
+					for (roi = 0; roi < xlims.size(); roi += 2) {
+						if (x >= xlims[roi] && x <= xlims[roi+1] && y >= ylims[roi] && y <= ylims[roi+1])		// within the ROI: check rows and columns
+							break;
+					}
+					if (roi == xlims.size())			// Check until the end and not in any ROI --> skip
+						continue;
+				}
                 int x1 = xmap[x]*3;
                 float dx0, dy0, dx, dy, mag0, mag;
 #ifdef HAVE_IPP
@@ -448,6 +490,15 @@ void FisheyeHOGDescriptor::computeGradient(const Mat& img, Mat& grad, Mat& qangl
 
         for( x = 0; x < width; x++ )
         {
+        	if (xlims.size() && ylims.size()) {						// Some ROIs exist
+				int roi;
+				for (roi = 0; roi < xlims.size(); roi += 2) {
+					if (x >= xlims[roi] && x <= xlims[roi+1] && y >= ylims[roi] && y <= ylims[roi+1])		// within the ROI: check rows and columns
+						break;
+				}
+				if (roi == xlims.size())			// Check until the end and not in any ROI --> skip
+					continue;
+			}
 #ifdef HAVE_IPP
             int hidx = (int)pHidxs[x];
 #else
@@ -495,11 +546,11 @@ struct FisheyeHOGCache
     FisheyeHOGCache();
     FisheyeHOGCache(const FisheyeHOGDescriptor* descriptor,
         const Mat& img, Size paddingTL, Size paddingBR,
-        bool useCache, Size cacheStride);
+        bool useCache, Size cacheStride, const vector<RotatedRect> &ROIs=vector<RotatedRect>());
     virtual ~FisheyeHOGCache() {};
     virtual void init(const FisheyeHOGDescriptor* descriptor,
         const Mat& img, Size paddingTL, Size paddingBR,
-        bool useCache, Size cacheStride);
+        bool useCache, Size cacheStride, const vector<RotatedRect> &ROIs=vector<RotatedRect>());
 
     Size windowsInImage(Size imageSize, Size winStride) const;
     RotatedRect getWindow(Size imageSize, Size winStride, int idx) const;
@@ -544,14 +595,14 @@ FisheyeHOGCache::FisheyeHOGCache()
 
 FisheyeHOGCache::FisheyeHOGCache(const FisheyeHOGDescriptor* _descriptor,
         const Mat& _img, Size _paddingTL, Size _paddingBR,
-        bool _useCache, Size _cacheStride)
+        bool _useCache, Size _cacheStride, const vector<RotatedRect> &ROIs)
 {
-    init(_descriptor, _img, _paddingTL, _paddingBR, _useCache, _cacheStride);
+    init(_descriptor, _img, _paddingTL, _paddingBR, _useCache, _cacheStride, ROIs);
 }
 
 void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
         const Mat& _img, Size _paddingTL, Size _paddingBR,
-        bool _useCache, Size _cacheStride)
+        bool _useCache, Size _cacheStride, const vector<RotatedRect> &ROIs)
 {
     descriptor = _descriptor;
     cacheStride = _cacheStride;
@@ -561,7 +612,7 @@ void FisheyeHOGCache::init(const FisheyeHOGDescriptor* _descriptor,
     //toShow = true;
     //toStop = false;
 
-    descriptor->computeGradient(_img, grad, qangle, _paddingTL, _paddingBR);
+    descriptor->computeGradient(_img, grad, qangle, _paddingTL, _paddingBR, ROIs);
     imgoffset = _paddingTL;
 
     winSize = descriptor->winSize;
@@ -1211,7 +1262,9 @@ void FisheyeHOGDescriptor::compute(const Mat& img, vector<float>& descriptors,
         s_angle = sin(ang);
         //Point center = Point(scale*ROIs[i].center);
 
-        FisheyeHOGCache cache(this, smallerImg, Size(0,0), Size(0,0), false, Size(4,2));
+        vector<RotatedRect> area(1,ROIs[i]);
+
+        FisheyeHOGCache cache(this, smallerImg, Size(0,0), Size(0,0), false, Size(4,2), area);
         int blockHistogramSize = cache.blockHistogramSize;
         vector<Point> imgOffsets;
         imgOffsets.resize(cache.nblocks.area());
@@ -1594,7 +1647,7 @@ void FisheyeHOGDescriptor::detectArea(const Mat& img, const vector<RotatedRect>&
 
     //t1 = clock();
     //printf("%.6f ", ((float)t1-t0)/CLOCKS_PER_SEC);
-    FisheyeHOGCache cache(this, img, padding, padding, nwindows == 0, cacheStride);
+    FisheyeHOGCache cache(this, img, padding, padding, nwindows == 0, cacheStride, areas);
     //int64 t = getTickCount() - t1;
     //t2 = clock();
     //printf("%f s for cache\n", ((float)t)/CLOCKS_PER_SEC);
