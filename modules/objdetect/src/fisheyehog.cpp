@@ -1631,14 +1631,26 @@ void FisheyeHOGDescriptor::detectArea(const Mat& img, const vector<RotatedRect>&
         r2 = norm(vertices[1]-img_center) - winSize.height/2;
         // r1 must be less than r2
         CV_Assert(r1 < r2);
-        theta1 = atan2(vertices[0].x - img_center.x, img_center.y - vertices[0].y) * 180./CV_PI;
+        if (r1 < 0) {				// center is inside the area
+			r1 = 0.;
+			theta1 = area.angle - 89.;		// Avoiding cos = 0
+			while (theta1 < 0)
+				theta1 += 360.;
+			theta2 = area.angle + 89.;
+			while (theta2 < 0)
+				theta2 += 360.;
+			//cout << "r1: " << r1 << ", " << " thetas: " << theta1 << "," << theta2 << endl;
+		}
+		else {
+			theta1 = atan2(vertices[0].x - img_center.x, img_center.y - vertices[0].y) * 180./CV_PI;
 
-        // convert to [0,360) range
-        if (theta1 < 0)
-            theta1 += 360.;
-        theta2 = atan2(vertices[3].x - img_center.x, img_center.y - vertices[3].y) * 180./CV_PI;
-        if (theta2 < 0)
-            theta2 += 360.;
+			// convert to [0,360) range
+			if (theta1 < 0)
+				theta1 += 360.;
+			theta2 = atan2(vertices[3].x - img_center.x, img_center.y - vertices[3].y) * 180./CV_PI;
+			if (theta2 < 0)
+				theta2 += 360.;
+		}
 
         limits.push_back(Point2f(r1, theta1));
         limits.push_back(Point2f(r2, theta2));
@@ -1700,6 +1712,12 @@ void FisheyeHOGDescriptor::detectArea(const Mat& img, const vector<RotatedRect>&
                     	isOutOfBound = false;
                         break;
                     }
+                }
+                else if (lim1.x == 0) {
+                	if (theta_px > lim1.y && theta_px < lim2.y) {
+                		isOutOfBound = false;
+                		break;
+                	}
                 }
                 else {                                  // normal
                     if (theta_px > lim1.y && theta_px < lim2.y) {
